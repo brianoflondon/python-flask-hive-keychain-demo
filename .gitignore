@@ -2,6 +2,8 @@
 /__pycache__
 /flaskblog/__pycache__
 /venv
+venv/
+flaskblog/
 flaskblog/__pycache__/forms.cpython-38.pyc
 flaskblog/__pycache__/models.cpython-38.pyc
 flaskblog/__pycache__/routes.cpython-38.pyc
@@ -25,3 +27,8 @@ venv/lib/python3.8/site-packages/idna-3.1.dist-info/METADATA
 venv/lib/python3.8/site-packages/idna-3.1.dist-info/RECORD
 venv/lib/python3.8/site-packages/idna-3.1.dist-info/top_level.txt
 venv/lib/python3.8/site-packages/idna-3.1.dist-info/WHEEL
+venv/lib/python3.8/site-packages/idna/__pycache__/__init__.cpython-38.pyc
+venv/lib/python3.8/site-packages/idna/__pycache__/core.cpython-38.pyc
+venv/lib/python3.8/site-packages/idna/__pycache__/idnadata.cpython-38.pyc
+venv/lib/python3.8/site-packages/idna/__pycache__/intranges.cpython-38.pyc
+venv/lib/python3.8/site-packages/idna/__pycache__/package_data.cpython-38.pyc
