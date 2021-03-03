@@ -9,11 +9,13 @@ def load_user(user_id):
 
 
 class User(db.Model, UserMixin):
+    # Changed the nullable fields for password and email
+    # username can be the Hive username
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(20), unique=True, nullable=False)
-    email = db.Column(db.String(120), unique=True, nullable=False)
+    email = db.Column(db.String(120), nullable=True)
     image_file = db.Column(db.String(20), nullable=False, default='default.jpg')
-    password = db.Column(db.String(60), nullable=False)
+    password = db.Column(db.String(60), nullable=True)
     posts = db.relationship('Post', backref='author', lazy=True)
 
     def __repr__(self):

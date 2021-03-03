@@ -31,3 +31,5 @@ class LoginForm(FlaskForm):
     password = PasswordField('Password', validators=[DataRequired()])
     remember = BooleanField('Remember Me')
     submit = SubmitField('Login')
+    # Hive account name field
+    acc_name = StringField('Hive Account', validators=[Length(min=3, max=16)])
