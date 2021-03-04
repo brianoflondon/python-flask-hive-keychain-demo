@@ -16,6 +16,12 @@ import json
 
 posts = [
     {
+        'author': 'Brian of London',
+        'title': 'Demo of Hive KeyChain Login with Flask Python',
+        'content': 'For more details on this you should look at the Github Link',
+        'date_posted': 'March 4, 2021'
+    },
+    {
         'author': 'Corey Schafer',
         'title': 'Blog Post 1',
         'content': 'First post content',
