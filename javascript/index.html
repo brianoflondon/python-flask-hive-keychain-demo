@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Auto Fill </title>
     <link rel="stylesheet" href="css/bootstrap.min.css"/>
+    <link rel="stylesheet" href="css/main.css"/>
 </head>
 <body>
     <div class="container mt-5">
@@ -23,6 +24,41 @@
             </div>
         </div>
     </div>
+    <body>
+    <div class='container'>
+        <div class='row'>
+          <div class='col'>
+            <div class='card mt-4 mb-3'>
+              <div class='card-header bg-transparent border-success'>
+                <h2>Autocomplete</h2>
+              </div>
+              <div class='card-body text-center'>
+                <!-- <h5 class="card-title">Success card title</h5> -->
+                <p class='card-text'>Start typing:</p>
+                <!-- Make sure the form has the autocomplete function switched off: -->
+                <form action='' autocomplete='off'>
+                  <div class='input-group mb-3'>
+                    <input aria-describedby='button-addon2' aria-label='Country' class='form-control autocomplete' id='myInput' name='myCountry' placeholder='Country' type='text'>
+                    <div class='input-group-append'>
+                      <button class='btn btn-outline-secondary' id='button-addon2' type='button'>OK</button>
+                    </div>
+                  </div>
+                </form>
+              </div>
+              <!-- card-text -->
+              <div class='card-footer text-muted bg-transparent border-success text-center'>
+                Source:
+                <a href='https://www.w3schools.com/howto/howto_js_autocomplete.asp' target='_blank'>w3schools.com JS Autocomplete</a>
+              </div>
+            </div>
+            <!-- card -->
+          </div>
+          <!-- col -->
+        </div>
+        <!-- row -->
+    </div>
+    <!-- container -->
+
     <script src="js/main.js"/>
     </body>
 </html>
