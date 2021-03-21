@@ -43,7 +43,10 @@ const search2 = document.getElementById('myInput');
 
 "use strict";
 
-let autocomplete = (inp, arr) => {
+
+
+ let autocomplete = (inp, arr) => {
+
   /*the autocomplete function takes two arguments,
   the text field element and an array of possible autocompleted values:*/
   let currentFocus;
@@ -53,14 +56,13 @@ let autocomplete = (inp, arr) => {
       b, // INNER html: filled with array-Data and html
       i, //Counter
       val = this.value;
-      arr = searchHiveNames2(inp.value);
     /*close any already open lists of autocompleted values*/
     closeAllLists();
 
     if (!val) {
       return false;
     }
-    arr = searchHiveNames2(inp.value);
+
     currentFocus = -1;
 
     /*create a DIV element that will contain the items (values):*/
@@ -160,10 +162,6 @@ let autocomplete = (inp, arr) => {
 };
 
 
-
-let countries =['brianoflondon','adamcurry']
-/*initiate the autocomplete function on the "myInput" element, and pass along the countries array as possible autocomplete values:*/
-
 const searchHiveNames2 = async searchText => {
     console.log(searchText)
     const res = await fetch("https://api.hive.blog", {
@@ -187,4 +185,10 @@ const searchHiveNames2 = async searchText => {
 };
 
 
-autocomplete(search2, searchHiveNames2(search2.value));
+
+async function getNames() {
+    const arr = await searchHiveNames2(search2.value);
+    const resp = autocomplete(search2, arr);
+};
+
+getNames();
