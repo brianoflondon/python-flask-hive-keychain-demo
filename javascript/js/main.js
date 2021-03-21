@@ -1,5 +1,5 @@
 const search = document.getElementById('acc-name');
-const matchlist = document.getElementById('match-list');
+const nameList = document.getElementById('nameList');
 
 search.addEventListener('input', () => searchHiveNames(search.value));
 
@@ -18,7 +18,7 @@ const searchHiveNames = async searchText => {
     var accNames = rawData.result.accounts;
     if(searchText.length === 0) {
         accNames = [];
-        matchlist.innerHTML = '';
+        nameList.innerHTML = '';
     };
     console.log(accNames);
     outpuHtml(accNames);
@@ -27,13 +27,19 @@ const searchHiveNames = async searchText => {
 const outpuHtml = accNames => {
     if(accNames.length > 0 ) {
         const html = accNames.map(accName => `
-        <div class="list-group card card-body mb-1" id="choice-${accName.id}">
+        <div class="card card-body mb-1" id="choice-${accName.id}" onclick="elementSelected()">
             <h4>${accName.name}</h4>
         </div>
         `).join('');
-        matchlist.innerHTML = html;
+        nameList.innerHTML = html;
     }
 }
+
+function elementSelected(){
+    console.log('hello')
+    // Dig from the event which element was
+    // clicked and do something with it
+  }
 
 // fetch("https://api.hive.blog", {
 //     body: `{"jsonrpc":"2.0", "method":"database_api.list_accounts", "params": {"start":"${aName}", "limit":10, "order":"by_name"}, "id":1}`,
