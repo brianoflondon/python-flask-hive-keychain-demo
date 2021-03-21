@@ -3,7 +3,7 @@
     <div class="content-section">
 
         <!-- Adding the Hive Keychain section  -->
-        <fieldset class="form-group">
+        <fieldset class="form-group form-inline">
             <legend class="border-bottom mb-4">{{ title }}</legend>
             <div class="container p-3">
                 <h2>The Steps:</h2>
@@ -11,21 +11,24 @@
                 <li><a href="https://hiveonboard.com/create-account?ref=brianoflondon" target="_blank" rel="noopener noreferrer">Get a Hive Account from HiveOnboard.</a></li>
                 <li>Put your Hive Username in here:</li>
             </div>
-            <div class="form-group">
-                {{ form.acc_name.label(class="form-control-label") }}
+            <div class="input-group mb-3 p-1">
+                <div class="input-group-prepend">
+                    <span class="input-group-text" id="basic-addon1">@</span>
+                </div>
                 {% if form.acc_name.errors %}
-                    {{ form.acc_name(class="form-control form-control-lg is-invalid") }}
+                    {{ form.acc_name(class="input-group-text is-invalid") }}
                     <div class="invalid-feedback">
                         {% for error in form.acc_name.errors %}
                             <span>{{ error }}</span>
                         {% endfor %}
                     </div>
                 {% else %}
-                    {{ form.acc_name(class="form-control form-control-lg") }}
+                    <input type="text" id="acc_name" name="acc_name" class="form-control" placeholder="Hive User" aria-label="Hive User" aria-describedby="basic-addon1">
                 {% endif %}
             </div>
-            <button class="btn btn-primary" id="Check Keychain" name="check-keychain" onClick="hiveKeychainSign()">Hive KeyChain Login</button>
+            <button class="btn btn-primary mb-3 p2" id="Check Keychain" name="check-keychain" onClick="hiveKeychainSign()">Hive KeyChain Login</button>
         </fieldset>
+        <div id="match-list"></div>
         <!-- Adding the Hive Keychain section  -->
 
         <form method="POST" action="">
@@ -77,6 +80,9 @@
         </small>
     </div>
 
+
+<script src="bootstrap-autocomplete.min.js"></script>
+
 <!-- Hive Keychain javascript part -->
 <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
 <script>
@@ -111,5 +117,47 @@ function hiveKeychainSign(){
     };
 </script>
 <!-- Hive Keychain javascript part -->
+
+<!-- Autocomplete for Hive usernames -->
+<script>
+const search = document.getElementById('acc_name');
+const matchlist = document.getElementById('match-list');
+
+search.addEventListener('input', () => searchHiveNames(search.value));
+
+// search Hive api and filter
+
+const searchHiveNames = async searchText => {
+    console.log(searchText)
+    const res = await fetch("https://api.hive.blog", {
+        body: `{"jsonrpc":"2.0", "method":"database_api.list_accounts", "params": {"start":"${searchText}", "limit":3, "order":"by_name"}, "id":1}`,
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        method: "POST"
+      });
+    var rawData = await res.json();
+    var accNames = rawData.result.accounts;
+    if(searchText.length === 0) {
+        accNames = [];
+        matchlist.innerHTML = '';
+    };
+    console.log(accNames);
+    outpuHtml(accNames);
+};
+
+const outpuHtml = accNames => {
+    if(accNames.length > 0 ) {
+        const html = accNames.map(accName => `
+        <div class="card card-body mb-1" id="choice-${accName.id}">
+            <a href="#">${accName.name}</a>
+        </div>
+        `).join('');
+        matchlist.innerHTML = html;
+    }
+}
+
+</script>
+
 
 {% endblock content %}

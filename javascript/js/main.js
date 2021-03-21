@@ -27,8 +27,8 @@ const searchHiveNames = async searchText => {
 const outpuHtml = accNames => {
     if(accNames.length > 0 ) {
         const html = accNames.map(accName => `
-        <div class="list-group card card-body mb-1" id="choice-${accName.id}">
-            <h4>${accName.name}</h4>
+        <div class="card card-body mb-1" id="choice-${accName.id}">
+            <a href="#"><h4>${accName.name}</h4></a>
         </div>
         `).join('');
         matchlist.innerHTML = html;
