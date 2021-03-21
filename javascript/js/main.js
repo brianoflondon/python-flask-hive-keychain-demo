@@ -1,39 +1,41 @@
-const search = document.getElementById('acc-name');
-const matchlist = document.getElementById('match-list');
+// const search = document.getElementById('acc-name');
+const search2 = document.getElementById('myInput');
+// const matchlist = document.getElementById('match-list');
 
-search.addEventListener('input', () => searchHiveNames(search.value));
+// search.addEventListener('input', () => searchHiveNames(search.value));
+// search2.addEventListener('input', () => searchHiveNames2(search2.value));
 
 // search Hive api and filter
 
-const searchHiveNames = async searchText => {
-    console.log(searchText)
-    const res = await fetch("https://api.hive.blog", {
-        body: `{"jsonrpc":"2.0", "method":"database_api.list_accounts", "params": {"start":"${searchText}", "limit":3, "order":"by_name"}, "id":1}`,
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded"
-        },
-        method: "POST"
-      });
-    var rawData = await res.json();
-    var accNames = rawData.result.accounts;
-    if(searchText.length === 0) {
-        accNames = [];
-        matchlist.innerHTML = '';
-    };
-    console.log(accNames);
-    outpuHtml(accNames);
-};
+// const searchHiveNames = async searchText => {
+//     console.log(searchText)
+//     const res = await fetch("https://api.hive.blog", {
+//         body: `{"jsonrpc":"2.0", "method":"database_api.list_accounts", "params": {"start":"${searchText}", "limit":3, "order":"by_name"}, "id":1}`,
+//         headers: {
+//           "Content-Type": "application/x-www-form-urlencoded"
+//         },
+//         method: "POST"
+//       });
+//     var rawData = await res.json();
+//     var accNames = rawData.result.accounts;
+//     if(searchText.length === 0) {
+//         accNames = [];
+//         matchlist.innerHTML = '';
+//     };
+//     console.log(accNames);
+//     outpuHtml(accNames);
+// };
 
-const outpuHtml = accNames => {
-    if(accNames.length > 0 ) {
-        const html = accNames.map(accName => `
-        <div class="card card-body mb-1" id="choice-${accName.id}">
-            <a href="#"><h4>${accName.name}</h4></a>
-        </div>
-        `).join('');
-        matchlist.innerHTML = html;
-    }
-}
+// const outpuHtml = accNames => {
+//     if(accNames.length > 0 ) {
+//         const html = accNames.map(accName => `
+//         <div class="card card-body mb-1" id="choice-${accName.id}">
+//             <a href="#"><h4>${accName.name}</h4></a>
+//         </div>
+//         `).join('');
+//         matchlist.innerHTML = html;
+//     }
+// }
 
 
 
@@ -51,14 +53,14 @@ let autocomplete = (inp, arr) => {
       b, // INNER html: filled with array-Data and html
       i, //Counter
       val = this.value;
-
+      arr = searchHiveNames2(inp.value);
     /*close any already open lists of autocompleted values*/
     closeAllLists();
 
     if (!val) {
       return false;
     }
-
+    arr = searchHiveNames2(inp.value);
     currentFocus = -1;
 
     /*create a DIV element that will contain the items (values):*/
@@ -162,5 +164,27 @@ let autocomplete = (inp, arr) => {
 let countries =['brianoflondon','adamcurry']
 /*initiate the autocomplete function on the "myInput" element, and pass along the countries array as possible autocomplete values:*/
 
+const searchHiveNames2 = async searchText => {
+    console.log(searchText)
+    const res = await fetch("https://api.hive.blog", {
+        body: `{"jsonrpc":"2.0", "method":"database_api.list_accounts", "params": {"start":"${searchText}", "limit":10, "order":"by_name"}, "id":1}`,
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded"
+        },
+        method: "POST"
+      });
+    var rawData = await res.json();
+    var accNames = rawData.result.accounts;
+    var arr = []
+    for (i = 0; i < accNames.length; i++) {
+        arr[i] = accNames[i].name;
+    };
+    if(searchText.length === 0) {
+        accNames = [];
+    };
+    console.log(arr);
+    return arr;
+};
 
-autocomplete(document.getElementById("myInput"), countries);
+
+autocomplete(search2, searchHiveNames2(search2.value));
