@@ -1,4 +1,4 @@
-from flask import render_template, url_for, flash, redirect, request
+from flask import render_template, url_for, flash, redirect, request, jsonify
 from flaskblog import app, db, bcrypt
 from flaskblog.forms import RegistrationForm, LoginForm
 from flaskblog.models import User, Post
@@ -13,6 +13,7 @@ from beemgraphenebase.account import PublicKey
 from beemgraphenebase.ecdsasig import verify_message
 from flask import make_response
 import json
+import requests
 
 posts = [
     {
@@ -141,7 +142,34 @@ def validate_hivekeychain_ans(ans):
         return False, 0
 
 
-
+@app.route("/lookup", methods=['GET','POST'])
+def autocomplete_hive_acc_name():
+    """ Lookup a Hive account for autocomplete """
+    """ https://api.jqueryui.com/autocomplete/#option-source """
+    node = 'https://hive.roelandp.nl'
+    # node = 'https://api.hive.blog'
+    if 'term' in request.args:
+        search = request.args['term']
+        limit = request.args.get('limit')
+        if not limit: limit = 10
+        headers = {
+          "Content-Type": "application/x-www-form-urlencoded"
+        }
+        payload = {
+            "jsonrpc": "2.0",
+            "method": "database_api.list_accounts",
+            "params": {
+                "start": search,
+                "limit": limit,
+                "order": "by_name"
+            },
+            "id": 1
+        }
+        r = requests.post(url = node, data=json.dumps(payload), headers=headers)
+        names = [n['name'] for n in r.json()['result']['accounts']]
+    else:
+        names = []
+    return make_response(jsonify(names))
 
 
 @app.route("/logout")
