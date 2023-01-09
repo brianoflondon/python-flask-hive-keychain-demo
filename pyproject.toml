@@ -1,0 +1,27 @@
+[tool.poetry]
+name = "python-flask-hive-keychain-demo"
+version = "0.1.0"
+description = "A demo for logging in to a Flask app with Hive"
+authors = ["Brian of London (Dot) <brian@v4v.app>"]
+license = "MIT"
+readme = "README.md"
+packages = [{include = "python_flask_hive_keychain_demo"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+Flask = "^2.2.2"
+beem = {git = "https://gitlab.syncad.com/hive/beem.git"}
+flask-sqlalchemy = "^3.0.2"
+flask-login = "^0.6.2"
+flask-bcrypt = "^1.0.1"
+flask-wtf = "^1.0.1"
+email-validator = "^1.3.0"
+
+[tool.poetry.group.dev.dependencies]
+black = "^22.12.0"
+pytest = "^7.2.0"
+flake8 = "^6.0.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
