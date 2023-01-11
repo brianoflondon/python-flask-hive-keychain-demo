@@ -2,10 +2,11 @@
 {% if acc_name == '' %}
 {{ url_for('static', filename='unknown.jpg') }}
 {% else %}
-https://images.hive.blog/u/{{ acc_name }}/avatar?width={{ size }}&height={{ size }}
+https://api.v4v.app/v1/hive/avatar/{{ acc_name }}
 {% endif %}
 {%- endmacro %}
 
+<!-- https://images.hive.blog/u/{{ acc_name }}/avatar?width={{ size }}&height={{ size }} -->
 {% macro hb_profile_image(acc_name, size='2rem') -%}
 {% if not acc_name %}
 <img style="height: {{ size }}; width: {{ size }}" src="{{ url_for('static', filename='unknown.jpg') }}">
@@ -14,6 +15,13 @@ https://images.hive.blog/u/{{ acc_name }}/avatar?width={{ size }}&height={{ size
 {% endif %}
 {%- endmacro %}
 
+{% macro v4v_lightning_qr(acc_name, size='2rem') -%}
+{% if not acc_name %}
+<img style="height: {{ size }}; width: {{ size }}" src="{{ url_for('static', filename='unknown.jpg') }}">
+{% else %}
+<img style="height: {{ size }}; width: {{ size }}" src="https://v4v.app/p/{{ acc_name }}.png">
+{% endif %}
+{%- endmacro %}
 
 <!DOCTYPE html>
 <html>
@@ -90,7 +98,7 @@ https://images.hive.blog/u/{{ acc_name }}/avatar?width={{ size }}&height={{ size
         <div class="content-section">
           <div>
             <div style="margin: auto;">
-              {{ hb_profile_image(current_user.username, size='100%') }}
+              {{ v4v_lightning_qr(current_user.username, size='100%') }}
             </div>
           </div>
           <h3>Our Sidebar</h3>
