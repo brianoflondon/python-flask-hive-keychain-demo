@@ -1,5 +1,11 @@
 {% extends "layout.html" %}
 {% block content %}
-    <h1>{{ current_user.username }}</h1>
-    {{ hb_profile_image(current_user.username, size='300px') }}
+    <h1>{{ current_user.name }}</h1>
+    {{ hb_profile_image(current_user.name, size='300px') }}
+    <br>
+    {{ current_user }}
+    <br>
+    {{ current_user.profile }}
+
+
 {% endblock content %}

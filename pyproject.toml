@@ -11,7 +11,6 @@ packages = [{include = "python_flask_hive_keychain_demo"}]
 python = "^3.11"
 Flask = "^2.2.2"
 beem = {git = "https://gitlab.syncad.com/hive/beem.git"}
-flask-sqlalchemy = "^3.0.2"
 flask-login = "^0.6.2"
 flask-bcrypt = "^1.0.1"
 flask-wtf = "^1.0.1"

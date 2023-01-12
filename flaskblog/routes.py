@@ -19,9 +19,9 @@ from flask import (
 )
 from flask_login import current_user, login_required, login_user, logout_user
 
-from flaskblog import app, bcrypt, db
+from flaskblog import app, bcrypt
 from flaskblog.forms import LoginForm, RegistrationForm
-from flaskblog.models import Post, User
+from flaskblog.models import User
 
 posts = [
     {
@@ -68,8 +68,6 @@ def register():
         user = User(
             username=form.username.data, email=form.email.data, password=hashed_password
         )
-        db.session.add(user)
-        db.session.commit()
         flash("Your account has been created! You are now able to log in", "success")
         return redirect(url_for("login"))
     return render_template("register.html", title="Register", form=form)
@@ -80,14 +78,6 @@ def login():
     if current_user.is_authenticated:
         return redirect(url_for("home"))
     form = LoginForm()
-    if form.validate_on_submit():
-        user = User.query.filter_by(email=form.email.data).first()
-        if user and bcrypt.check_password_hash(user.password, form.password.data):
-            login_user(user, remember=form.remember.data)
-            next_page = request.args.get("next")
-            return redirect(next_page) if next_page else redirect(url_for("home"))
-        else:
-            flash("Login Unsuccessful. Please check email and password", "danger")
     return render_template("login.html", title="Login", form=form)
 
 
@@ -100,18 +90,15 @@ def hive_login():
         ans = json.loads(request.data.decode("utf-8"))
         if ans["success"] and validate_hivekeychain_ans(ans):
             acc_name = ans["data"]["username"]
-            user = User.query.filter_by(username=acc_name).first()
+            user = User(account=acc_name)
             if user:
                 login_user(user, remember=True)
-                flash(f"Welcome back - @{user.username}", "info")
+                flash(f"Welcome back - @{user.name}", "info")
                 app.logger.info(f"{acc_name} logged in successfully")
                 return make_response({"loadPage": url_for("home")}, 200)
                 # return redirect(url_for('podcaster.dashboard'))
             else:
                 user = User(username=acc_name)
-                db.session.add(user)
-                db.session.commit()
-                result = login_user(user, remember=True)
                 flash(f"Welcome - @{user.username}", "info")
                 app.logger.info(f"{acc_name} logged in for the first time")
                 return make_response({"loadPage": url_for("home")}, 200)
