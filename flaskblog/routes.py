@@ -23,32 +23,14 @@ from flaskblog import app, bcrypt
 from flaskblog.forms import LoginForm, RegistrationForm
 from flaskblog.models import User
 
-posts = [
-    {
-        "author": "Brian of London",
-        "title": "Demo of Hive KeyChain Login with Flask Python",
-        "content": "For more details on this you should look at the Github Link",
-        "date_posted": "March 4, 2021",
-    },
-    {
-        "author": "Corey Schafer",
-        "title": "Blog Post 1",
-        "content": "First post content",
-        "date_posted": "April 20, 2018",
-    },
-    {
-        "author": "Jane Doe",
-        "title": "Blog Post 2",
-        "content": "Second post content",
-        "date_posted": "April 21, 2018",
-    },
-]
-
 
 @app.route("/home", strict_slashes=False)
 @app.route("/")
 def home():
-    return render_template("home.html", posts=posts)
+    if not current_user.is_authenticated:
+        return redirect(url_for("login"))
+
+    return render_template("home.html", posts=current_user.get_blog(limit=10))
 
 
 @app.route("/about")
@@ -169,8 +151,7 @@ def logout():
     logout_user()
     return redirect(url_for("home"))
 
-
-@app.route("/account")
 @login_required
-def account():
+@app.route("/@<hive_acc>")
+def profile(hive_acc: str =''):
     return render_template("account.html", title="Account")
