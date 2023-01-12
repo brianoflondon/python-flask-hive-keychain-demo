@@ -64,7 +64,6 @@ https://api.v4v.app/v1/hive/avatar/{{ acc_name }}
             <a class="nav-item nav-link" href="{{ url_for('logout') }}">Logout</a>
             {% else %}
             <a class="nav-item nav-link" href="{{ url_for('login') }}">Login</a>
-            <a class="nav-item nav-link" href="{{ url_for('register') }}">Register</a>
             {% endif %}
           </div>
           {% if current_user.is_authenticated %}

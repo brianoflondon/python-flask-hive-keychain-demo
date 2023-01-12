@@ -1,6 +1,5 @@
 import json
-
-# Added for Hive Keychain login
+import logging
 import time
 from binascii import hexlify, unhexlify
 
@@ -19,8 +18,8 @@ from flask import (
 )
 from flask_login import current_user, login_required, login_user, logout_user
 
-from flaskblog import app, bcrypt
-from flaskblog.forms import LoginForm, RegistrationForm
+from flaskblog import app
+from flaskblog.forms import LoginForm
 from flaskblog.models import User
 
 
@@ -38,23 +37,6 @@ def about():
     return render_template("about.html", title="About")
 
 
-@app.route("/register", methods=["GET", "POST"])
-def register():
-    if current_user.is_authenticated:
-        return redirect(url_for("home"))
-    form = RegistrationForm()
-    if form.validate_on_submit():
-        hashed_password = bcrypt.generate_password_hash(form.password.data).decode(
-            "utf-8"
-        )
-        user = User(
-            username=form.username.data, email=form.email.data, password=hashed_password
-        )
-        flash("Your account has been created! You are now able to log in", "success")
-        return redirect(url_for("login"))
-    return render_template("register.html", title="Register", form=form)
-
-
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if current_user.is_authenticated:
@@ -66,10 +48,13 @@ def login():
 @app.route("/hive/login", methods=["GET", "POST"])
 def hive_login():
     """Handle the answer from the Hive Keychain browser extension"""
+    logging.info(f"{request.method}")
     if current_user.is_authenticated:
         return redirect(url_for("home"))
     if request.method == "POST" and request.data:
+        logging.info(f"{request.data}")
         ans = json.loads(request.data.decode("utf-8"))
+        logging.info(ans)
         if ans["success"] and validate_hivekeychain_ans(ans):
             acc_name = ans["data"]["username"]
             user = User(account=acc_name)
@@ -151,7 +136,8 @@ def logout():
     logout_user()
     return redirect(url_for("home"))
 
+
 @login_required
 @app.route("/@<hive_acc>")
-def profile(hive_acc: str =''):
+def profile(hive_acc: str = ""):
     return render_template("account.html", title="Account")

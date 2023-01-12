@@ -40,7 +40,7 @@
 </div>
 <div class="border-top pt-3">
     <small class="text-muted">
-        Need An Account? <a class="ml-2" href="{{ url_for('register') }}">Sign Up Now</a>
+        Need An Account? <a class="ml-2" href="{{ url_for('login') }}">Sign Up Now</a>
     </small>
 </div>
 
@@ -60,7 +60,7 @@
         }
         const signedMessageObj = { type: 'login', address: name, page: window.location.href };
         const messageObj = { signed_message: signedMessageObj, timestamp: parseInt(new Date().getTime() / 1000, 10) };
-        keychain.requestSignBuffer(name, JSON.stringify(messageObj), 'Posting', response => {
+        keychain.requestSignBuffer(name, JSON.stringify(messageObj), 'Posting', (response) => {
             if (!response.success) { return; }
             //Successfully logged in
             console.log(response);
