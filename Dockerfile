@@ -12,13 +12,19 @@ COPY ./pyproject.toml ./poetry.lock* /app/
 WORKDIR  /app/
 
 RUN poetry install --no-root --only main
+# RUN poetry install  --only main
 
-COPY ./flaskblog /app/
+COPY ./flaskblog /app/flaskblog/
+COPY ./instance /app/instance/
+COPY run.py /app/
 
+EXPOSE 8080
+
+# CMD ["python", "run.py"]
 ENV FLASK_APP="run.py"
 
 # RUN poetry install --no-dev
-CMD [ "python3", "-m" , "flask", "run", "--host=0.0.0.0"]
+CMD [ "python3", "-m" , "flask", "run", "--host=0.0.0.0", "--port=8080"]
 
 
 # ENV GUNICORN_CMD_ARGS --proxy-protocol
