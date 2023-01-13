@@ -3,12 +3,51 @@ import base64
 import json
 import os
 from enum import Enum
-from uuid import uuid4
+from hashlib import md5
+from pprint import pprint
+from uuid import UUID, uuid4
 
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad
+from Cryptodome import Random
+from Cryptodome.Cipher import AES
 from pydantic import BaseModel
 from websockets import connect
+
+
+def bytes_to_key(data, salt, output=48):
+    # extended from https://gist.github.com/gsakkis/4546068
+    assert len(salt) == 8, len(salt)
+    data += salt
+    key = md5(data).digest()
+    final_key = key
+    while len(final_key) < output:
+        key = md5(key + data).digest()
+        final_key += key
+    return final_key[:output]
+
+
+def encrypt(message, passphrase):
+    salt = Random.new().read(8)
+    key_iv = bytes_to_key(passphrase, salt, 32 + 16)
+    key = key_iv[:32]
+    iv = key_iv[32:]
+    aes = AES.new(key, AES.MODE_CBC, iv)
+    return base64.b64encode(
+        b"Salted__" + salt + aes.encrypt(pad(message, AES.block_size))
+    )
+
+
+def decrypt(encrypted, passphrase):
+    encrypted = base64.b64decode(encrypted)
+    assert encrypted[0:8] == b"Salted__"
+    salt = encrypted[8:16]
+    key_iv = bytes_to_key(passphrase, salt, 32 + 16)
+    key = key_iv[:32]
+    iv = key_iv[32:]
+    aes = AES.new(key, AES.MODE_CBC, iv)
+    return unpad(aes.decrypt(encrypted[16:]), AES.block_size)
+
 
 HAS_SERVER = "wss://hive-auth.arcange.eu"
 # HAS_SERVER = "wss://p51-server"
@@ -18,9 +57,8 @@ HAS_APP_DATA = {
     "description": "Demo - HiveAuth from Python",
     "icon": "flaskblog/static/unknown.jpg",
 }
-APP_KEY = uuid4()
-
-HAS_AUTH_REQ_SECRET = os.getenv("HAS_AUTH_REQ_SECRET")
+HAS_APP_KEY = os.getenv("HAS_APP_KEY")
+HAS_AUTH_REQ_SECRET = UUID(os.getenv("HAS_AUTH_REQ_SECRET"))
 
 
 class HASApp(BaseModel):
@@ -53,8 +91,8 @@ class AuthReqHAS(BaseModel):
     cmd: str = "auth_req"
     account: str
     data: str
-    token: str = "9048e8c2-fb06-4d16-b716-a575ea59a990"
-    auth_key: str | None
+    token: str | None
+    auth_key: str
 
 
 class AuthPayloadHAS(BaseModel):
@@ -73,90 +111,103 @@ class EncryptData:
     cipher_text_b64: str
     iv: str
 
-    def __init__(self, plain_text: str, key: str):
+    def __init__(self, **kwargs):
+        """
+        My Decryption system
+        https://onboardbase.com/blog/aes-encryption-decryption/
+        """
+        try:
+            if "plain_text" in kwargs and "key" in kwargs:
+                self.encrypt(plain_text=kwargs["plain_text"], key=kwargs["key"])
+            else:
+                self.decrypt(
+                    cipher_text_bytes=kwargs["cipher_text_bytes"],
+                    key=kwargs["key"],
+                    iv=kwargs["iv"],
+                )
+        except KeyError as ex:
+            raise KeyError(ex)
+
+    def encrypt(self, plain_text: str, key: UUID):
         self.plain_text = plain_text
         self.key = key
         self.data_bytes = bytes(plain_text, "utf-8")
         self.cipher = AES.new(key.bytes, AES.MODE_CBC)
+        # key_bytes, iv = get_key_and_iv(str(key), salt=bytes('0', 'ascii'))
+        # self.cipher.iv = iv
         self.cipher_text_bytes = self.cipher.encrypt(
             pad(self.data_bytes, AES.block_size)
         )
         self.iv = self.cipher.iv
         self.cipher_text_b64 = base64.b64encode(self.cipher_text_bytes).decode("utf-8")
 
-        decrypt_cipher = AES.new(key.bytes, AES.MODE_CBC, iv=self.cipher.iv)
-        check_data_bytes = decrypt_cipher.decrypt(self.cipher_text_bytes)
-        check_plain_text = (unpad(check_data_bytes, AES.block_size)).decode("utf-8")
-        if check_plain_text != self.plain_text:
-            raise Exception("Bad encryptions")
-
-
-def my_encrypt_AES_CBC(key: str, data_bytes: bytes) -> EncryptData:
-    """
-    My Encryption system
-    https://onboardbase.com/blog/aes-encryption-decryption/
-    """
-    cipher = AES.new(key, AES.MODE_CBC)
-    cipher_text = cipher.encrypt(pad(data_bytes, AES.block_size))
-    iv = cipher.iv
-    return EncryptData(data_bytes=data_bytes, cipher_text=cipher_text, iv=iv)
-
-
-def my_decryption_AEC_CBC(key: str, iv: str, cipher_text: str):
-    """
-    My Decryption system
-    https://onboardbase.com/blog/aes-encryption-decryption/
-    """
-    decrypt_cipher = AES.new(key, AES.MODE_CFB, iv=iv)
-    plain_text = decrypt_cipher.decrypt(cipher_text)
-    return plain_text
+    def decrypt(self, cipher_text_bytes: bytes, key: UUID, iv: str):
+        self.cipher_text_bytes = cipher_text_bytes
+        self.cipher_text_b64 = base64.b64encode(self.cipher_text_bytes).decode("utf-8")
+        self.key = key
+        self.iv = iv
+        self.cipher = AES.new(key.bytes, AES.MODE_CBC, iv=iv)
+        check_data_bytes = self.cipher.decrypt(self.cipher_text_bytes)
+        self.plain_text = (unpad(check_data_bytes, AES.block_size)).decode("utf-8")
 
 
 async def hello(uri):
     auth_key_uuid = uuid4()
+    auth_key_uuid = UUID(os.getenv("HAS_AUTH_REQ_SECRET"))
     auth_key = auth_key_uuid.bytes
     session_token = uuid4()
-    auth_data = AuthDataHAS.parse_obj({"token": str(session_token)})
+    auth_data = AuthDataHAS()
     data_str = json.dumps(auth_data.json())
 
     encrypted_payload = EncryptData(plain_text=data_str, key=auth_key_uuid)
-    print(encrypted_payload.cipher_text_b64)
+    decrypted_payload = EncryptData(
+        cipher_text_bytes=encrypted_payload.cipher_text_bytes,
+        key=auth_key_uuid,
+        iv=encrypted_payload.iv,
+    )
+    if encrypted_payload.cipher_text_b64 == decrypted_payload.cipher_text_b64:
+        print("Encrypted payload pass")
+        print("-" * 50)
 
-    data_bytes = bytes(data_str, "utf-8")
+    auth_key_to_send_bad = EncryptData(
+        plain_text=str(auth_key_uuid), key=HAS_AUTH_REQ_SECRET
+    )
 
-    cipher = AES.new(auth_key, AES.MODE_CFB)
-    cipher_text = cipher.encrypt(data_bytes)
-    iv = cipher.iv
+    payload_base64 = base64.b64encode(data_str.encode("utf-8"))
+
+    encrypted_payload = encrypt(payload_base64, auth_key_uuid.bytes)
+    b64_encrypted_payload = base64.b64encode(encrypted_payload).decode("utf-8")
+
+    encrypted_auth_key = encrypt(auth_key_uuid.bytes, HAS_AUTH_REQ_SECRET.bytes)
+    b64_encrypted_auth_key = base64.b64encode(encrypted_auth_key).decode("utf-8")
 
     auth_req = AuthReqHAS.parse_obj(
         {
             "account": "v4vapp.dev",
-            "data": base64.b64encode(cipher_text).decode("utf-8"),
+            "data": b64_encrypted_payload,
+            "auth_key": b64_encrypted_auth_key,
         }
     )
-
-    decrypt_cipher = AES.new(auth_key, AES.MODE_CFB, iv=iv)
-    plain_text = decrypt_cipher.decrypt(cipher_text)
-    if data_str == plain_text.decode():
-        print("pass encryption")
 
     async with connect(uri) as websocket:
         await websocket.send("Let's get this party started!")
         msg = await websocket.recv()
         fails = await websocket.recv()  # need this failure
-        print(json.dumps(msg, indent=2))
+        pprint(json.loads(msg))
         await websocket.send(auth_req.json())
         msg = await websocket.recv()
         auth_wait = json.loads(msg)
-        print(json.dumps(msg, indent=2))
+        pprint(json.loads(msg))
+
         auth_payload = AuthPayloadHAS.parse_obj(
             {
                 "account": "v4vapp.dev",
                 "uuid": auth_wait["uuid"],
-                "auth_key": base64.b64encode(cipher_text).decode("utf-8"),
+                "auth_key": b64_encrypted_auth_key,
+                # "auth_key": base64.b64encode(test_encrypt).decode("utf-8"),
             }
         )
-        print(json.dumps(auth_payload, default=str, indent=2))
+        pprint(json.dumps(auth_payload, default=str, indent=2))
         auth_payload_base64 = base64.b64encode((auth_payload.json()).encode()).decode(
             "utf-8"
         )
