@@ -1,10 +1,10 @@
 import asyncio
 import base64
 import json
+import os
 from uuid import uuid4
 
 from Crypto.Cipher import AES
-from Crypto.Random import get_random_bytes
 from pydantic import BaseModel
 from websockets import connect
 
@@ -17,6 +17,8 @@ HAS_APP_DATA = {
     "icon": "flaskblog/static/unknown.jpg",
 }
 APP_KEY = uuid4()
+
+AUTH_REQ_SECRET = os.getenv("AUTH_REQ_SECRET")
 
 
 class HASApp(BaseModel):
@@ -39,12 +41,13 @@ class HASAuthReq(BaseModel):
     account: str
     data: str
     token: str = "9048e8c2-fb06-4d16-b716-a575ea59a990"
+    auth_key: str = None
 
 
 class HASAuthPayload(BaseModel):
     account: str
     uuid: str
-    key: str
+    auth_key: str
     host: str = HAS_SERVER
 
 
@@ -75,20 +78,22 @@ async def hello(uri):
         await websocket.send("Let's get this party started!")
         msg = await websocket.recv()
         fails = await websocket.recv()  # need this failure
-        print(msg)
+        print(json.dumps(msg, indent=2))
         await websocket.send(auth_req.json())
         msg = await websocket.recv()
         auth_wait = json.loads(msg)
-        print(msg)
+        print(json.dumps(msg, indent=2))
         auth_payload = HASAuthPayload.parse_obj(
             {
                 "account": "v4vapp.dev",
                 "uuid": auth_wait["uuid"],
-                "key": str(auth_key_uuid),
+                "auth_key": base64.b64encode(cipher_text).decode("utf-8"),
             }
         )
-        print(auth_payload)
-        auth_payload_base64 = base64.b64encode((auth_payload.json()).encode()).decode("utf-8")
+        print(json.dumps(auth_payload, default=str, indent=2))
+        auth_payload_base64 = base64.b64encode((auth_payload.json()).encode()).decode(
+            "utf-8"
+        )
         qr_text = f"has://auth_req/{auth_payload_base64}"
         print(qr_text)
 
