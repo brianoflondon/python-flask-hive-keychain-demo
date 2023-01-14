@@ -3,7 +3,7 @@ import base64
 import json
 import os
 from binascii import hexlify, unhexlify
-from datetime import datetime, time
+from datetime import datetime, timedelta
 from enum import Enum
 from hashlib import md5
 from pprint import pprint
@@ -170,14 +170,72 @@ class AuthReqHAS(BaseModel):
 
 
 class AuthPayloadHAS(BaseModel):
-    account: str
-    uuid: str
-    key: str
     host: str = HAS_SERVER
+    account: str
+    uuid: UUID
+    key: UUID
 
 
 def str_bytes(uuid: UUID) -> bytes:
     return str(uuid).encode("utf-8")
+
+
+class CmdType(str, Enum):
+    auth_wait = "auth_wait"
+    auth_ack = "auth_ack"
+    auth_nack = "auth_nack"
+    auth_err = "auth_err"
+
+
+class AuthWaitHAS(BaseModel):
+    cmd: CmdType
+    uuid: UUID
+    expire: datetime
+    account: str
+
+
+class AuthAckNakErrHAS(BaseModel):
+    cmd: CmdType
+    uuid: UUID
+    data: str
+    auth_key: bytes | None
+    auth_data: AuthDataHAS | None
+    auth_payload: AuthPayloadHAS | None
+    signed_answer: SignedAnswer | None
+    validated: bool | None
+    time_to_validate: timedelta | None
+
+    @property
+    def decrypted_data(self) -> SignedAnswer:
+        data_bytes = self.data.encode("utf-8")
+        return json.loads(decrypt(data_bytes, self.auth_key).decode("utf-8"))
+
+    def decrypt(self):
+        if (
+            self.cmd == CmdType.auth_ack
+            and self.auth_key
+            and self.auth_data
+            and self.auth_payload
+            and self.data
+        ):
+            self.signed_answer = SignedAnswer(
+                success=True,
+                error=None,
+                result=self.decrypted_data["challenge"]["challenge"],
+                data=SignedAnswerData(
+                    answer_type="HAS",
+                    username=self.auth_payload.account,
+                    message=self.auth_data.challenge.challenge,
+                    method=self.auth_data.challenge.key_type,
+                    key=self.auth_data.challenge.key_type,
+                ),
+                request_id=1,
+                publicKey=self.decrypted_data["challenge"]["pubkey"],
+            )
+            self.validated, time_to_validate = validate_hivekeychain_ans(
+                self.signed_answer
+            )
+            self.time_to_validate = timedelta(seconds=time_to_validate)
 
 
 async def hello(uri):
@@ -219,16 +277,13 @@ async def hello(uri):
         pprint(json.loads(msg2))
         await websocket.send(auth_req.json())
         msg = await websocket.recv()
-        auth_wait = json.loads(msg)
+        auth_wait = AuthWaitHAS.parse_raw(msg)
         pprint(json.loads(msg))
 
-        auth_payload = AuthPayloadHAS.parse_obj(
-            {
-                "account": HIVE_ACCOUNT,
-                "uuid": auth_wait["uuid"],
-                "key": str(auth_key_uuid),
-            }
+        auth_payload = AuthPayloadHAS(
+            account=HIVE_ACCOUNT, uuid=auth_wait.uuid, key=auth_key_uuid
         )
+
         pprint(json.dumps(auth_payload, default=str, indent=2))
         auth_payload_base64 = base64.b64encode((auth_payload.json()).encode()).decode(
             "utf-8"
@@ -239,36 +294,19 @@ async def hello(uri):
         print("-" * 50)
 
         msg = await websocket.recv()
-        auth_ack = json.loads(msg)
+        auth_ack = AuthAckNakErrHAS.parse_raw(msg)
+        auth_ack.auth_key = auth_key
+        auth_ack.auth_data = auth_data
+        auth_ack.auth_payload = auth_payload
         pprint(auth_ack)
-        if auth_ack["uuid"] == auth_wait["uuid"]:
+        if auth_ack.uuid == auth_wait.uuid:
             print("uuid OK")
-            data_bytes = auth_ack["data"].encode("utf-8")
-
-            decrypted_auth_ack = json.loads(
-                decrypt(data_bytes, auth_key).decode("utf-8")
-            )
-            pprint(decrypted_auth_ack)
-            if decrypted_auth_ack.get("challenge"):
-                signed_answer_data = SignedAnswerData(
-                    answer_type="HAS",
-                    username=auth_payload.account,
-                    message=auth_data.challenge.challenge,
-                    method=auth_data.challenge.key_type,
-                    key=auth_data.challenge.key_type,
-                )
-                signed_answer = SignedAnswer(
-                    success=True,
-                    error=None,
-                    result=decrypted_auth_ack["challenge"]["challenge"],
-                    data=signed_answer_data,
-                    request_id=1,
-                    publicKey=decrypted_auth_ack["challenge"]["pubkey"],
+            auth_ack.decrypt()
+            if auth_ack.validated:
+                pprint(
+                    f"Authentication successful in {auth_ack.time_to_validate.seconds:.2f} seconds"
                 )
 
-                blobby = validate_hivekeychain_ans(signed_answer)
-                if blobby:
-                    print("Authentication successful")
 
 
 asyncio.run(hello(HAS_SERVER))
