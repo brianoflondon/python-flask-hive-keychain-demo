@@ -2,20 +2,94 @@ import asyncio
 import base64
 import json
 import os
+from binascii import hexlify, unhexlify
+from datetime import datetime, time
 from enum import Enum
 from hashlib import md5
 from pprint import pprint
 from uuid import UUID, uuid4
 
-from Crypto.Cipher import AES
-from Crypto.Util.Padding import pad, unpad
+from beem.account import Account
+from beemgraphenebase.account import PublicKey
+from beemgraphenebase.ecdsasig import verify_message
+
+# from Crypto.Cipher import AES
 from Cryptodome import Random
 from Cryptodome.Cipher import AES
 from pydantic import BaseModel
 from websockets import connect
 
+BLOCK_SIZE = AES.block_size
+# https://stackoverflow.com/questions/35472396/how-does-cryptojs-get-an-iv-when-none-is-specified
+# https://gist.github.com/tly1980/b6c2cc10bb35cb4446fb6ccf5ee5efbc
+# https://devpress.csdn.net/python/630460127e6682346619ab98.html
+HIVE_ACCOUNT = "v4vapp.dev"
 
-def bytes_to_key(data, salt, output=48):
+
+class SignedAnswerData(BaseModel):
+    answer_type: str
+    username: str
+    message: str
+    method: str
+    key: str
+
+
+class SignedAnswer(BaseModel):
+    success: bool = False
+    error: str | None
+    result: str
+    data: SignedAnswerData
+    message: str | None  # Message from the server
+    request_id: int
+    publicKey: str
+
+    @property
+    def public_key(self) -> PublicKey:
+        return PublicKey(self.publicKey)
+
+
+def validate_hivekeychain_ans(signed_answer: SignedAnswer):
+    """takes in the answer from hivekeychain and checks everything"""
+    """ https://bit.ly/keychainpython """
+
+    acc_name = signed_answer.data.username  # ans["data"]["username"]
+    pubkey_s = signed_answer.publicKey  # PublicKey(ans["publicKey"])
+    pubkey = signed_answer.public_key
+    enc_msg = signed_answer.data.message  # ans["data"]["message"]
+    signature = signed_answer.result  # ans["result"]
+
+    msgkey = verify_message(enc_msg, unhexlify(signature))
+    pk = PublicKey(hexlify(msgkey).decode("ascii"))
+    if str(pk) == str(pubkey):
+        print(f"{acc_name} SUCCESS: signature matches given pubkey")
+        acc = Account(acc_name, lazy=True)
+        match = False, 0
+        for key in acc["posting"]["key_auths"]:
+            match = match or pubkey_s in key
+        if match:
+            print(f"{acc_name} Matches public key from Hive")
+            mtime = json.loads(enc_msg)["timestamp"]
+            time_since = datetime.utcnow().timestamp() - mtime
+            if time_since < 30:
+                print(f"{acc_name} SUCCESS: in {time_since} seconds")
+                return True, time_since
+            else:
+                print(f"{acc_name} ERROR: answer took too long.")
+    else:
+        print(f"{acc_name} ERROR: message was signed with a different key")
+        return False, 0
+
+
+def pad(data):
+    length = BLOCK_SIZE - (len(data) % BLOCK_SIZE)
+    return data + (chr(length) * length).encode()
+
+
+def unpad(data):
+    return data[: -(data[-1] if type(data[-1]) == int else ord(data[-1]))]
+
+
+def bytes_to_key(data: bytes, salt: bytes, output: int = 48) -> bytes:
     # extended from https://gist.github.com/gsakkis/4546068
     assert len(salt) == 8, len(salt)
     data += salt
@@ -27,18 +101,16 @@ def bytes_to_key(data, salt, output=48):
     return final_key[:output]
 
 
-def encrypt(message, passphrase):
+def encrypt(message: bytes, passphrase: bytes) -> bytes:
     salt = Random.new().read(8)
     key_iv = bytes_to_key(passphrase, salt, 32 + 16)
     key = key_iv[:32]
     iv = key_iv[32:]
     aes = AES.new(key, AES.MODE_CBC, iv)
-    return base64.b64encode(
-        b"Salted__" + salt + aes.encrypt(pad(message, AES.block_size))
-    )
+    return base64.b64encode(b"Salted__" + salt + aes.encrypt(pad(message)))
 
 
-def decrypt(encrypted, passphrase):
+def decrypt(encrypted: bytes, passphrase: bytes):
     encrypted = base64.b64decode(encrypted)
     assert encrypted[0:8] == b"Salted__"
     salt = encrypted[8:16]
@@ -46,7 +118,7 @@ def decrypt(encrypted, passphrase):
     key = key_iv[:32]
     iv = key_iv[32:]
     aes = AES.new(key, AES.MODE_CBC, iv)
-    return unpad(aes.decrypt(encrypted[16:]), AES.block_size)
+    return unpad(aes.decrypt(encrypted[16:]))
 
 
 HAS_SERVER = "wss://hive-auth.arcange.eu"
@@ -73,7 +145,7 @@ class KeyType(str, Enum):
     memo = "memo"
 
 
-class ChannelDataHAS(BaseModel):
+class ChallengeHAS(BaseModel):
     key_type: KeyType = KeyType.posting
     challenge: str
 
@@ -81,10 +153,12 @@ class ChannelDataHAS(BaseModel):
 class AuthDataHAS(BaseModel):
     app: HASApp = HASApp()
     token: str | None
-    challenge: ChannelDataHAS | None
+    challenge: ChallengeHAS | None
 
-    def base64(self) -> str:
-        return base64.b64encode(self.token.encode("utf-8")).decode("utf-8")
+    @property
+    def bytes(self):
+        """Return object as json string in bytes"""
+        return json.dumps(self.dict()).encode("utf-8")
 
 
 class AuthReqHAS(BaseModel):
@@ -98,102 +172,51 @@ class AuthReqHAS(BaseModel):
 class AuthPayloadHAS(BaseModel):
     account: str
     uuid: str
-    auth_key: str
+    key: str
     host: str = HAS_SERVER
 
 
-class EncryptData:
-    plain_text: str | None
-    key: str
-    cipher: AES
-    data_bytes: bytes
-    cipher_text_bytes: bytes
-    cipher_text_b64: str
-    iv: str
-
-    def __init__(self, **kwargs):
-        """
-        My Decryption system
-        https://onboardbase.com/blog/aes-encryption-decryption/
-        """
-        try:
-            if "plain_text" in kwargs and "key" in kwargs:
-                self.encrypt(plain_text=kwargs["plain_text"], key=kwargs["key"])
-            else:
-                self.decrypt(
-                    cipher_text_bytes=kwargs["cipher_text_bytes"],
-                    key=kwargs["key"],
-                    iv=kwargs["iv"],
-                )
-        except KeyError as ex:
-            raise KeyError(ex)
-
-    def encrypt(self, plain_text: str, key: UUID):
-        self.plain_text = plain_text
-        self.key = key
-        self.data_bytes = bytes(plain_text, "utf-8")
-        self.cipher = AES.new(key.bytes, AES.MODE_CBC)
-        # key_bytes, iv = get_key_and_iv(str(key), salt=bytes('0', 'ascii'))
-        # self.cipher.iv = iv
-        self.cipher_text_bytes = self.cipher.encrypt(
-            pad(self.data_bytes, AES.block_size)
-        )
-        self.iv = self.cipher.iv
-        self.cipher_text_b64 = base64.b64encode(self.cipher_text_bytes).decode("utf-8")
-
-    def decrypt(self, cipher_text_bytes: bytes, key: UUID, iv: str):
-        self.cipher_text_bytes = cipher_text_bytes
-        self.cipher_text_b64 = base64.b64encode(self.cipher_text_bytes).decode("utf-8")
-        self.key = key
-        self.iv = iv
-        self.cipher = AES.new(key.bytes, AES.MODE_CBC, iv=iv)
-        check_data_bytes = self.cipher.decrypt(self.cipher_text_bytes)
-        self.plain_text = (unpad(check_data_bytes, AES.block_size)).decode("utf-8")
+def str_bytes(uuid: UUID) -> bytes:
+    return str(uuid).encode("utf-8")
 
 
 async def hello(uri):
     auth_key_uuid = uuid4()
-    auth_key_uuid = UUID(os.getenv("HAS_AUTH_REQ_SECRET"))
-    auth_key = auth_key_uuid.bytes
-    session_token = uuid4()
-    auth_data = AuthDataHAS()
-    data_str = json.dumps(auth_data.json())
+    auth_key = str_bytes(auth_key_uuid)
 
-    encrypted_payload = EncryptData(plain_text=data_str, key=auth_key_uuid)
-    decrypted_payload = EncryptData(
-        cipher_text_bytes=encrypted_payload.cipher_text_bytes,
-        key=auth_key_uuid,
-        iv=encrypted_payload.iv,
+    challenge = ChallengeHAS(
+        challenge=json.dumps(
+            {
+                "timestamp": datetime.utcnow().timestamp(),
+                "message": "Can't stop this challenge",
+            }
+        )
     )
-    if encrypted_payload.cipher_text_b64 == decrypted_payload.cipher_text_b64:
-        print("Encrypted payload pass")
-        print("-" * 50)
+    auth_data = AuthDataHAS(challenge=challenge)
+    pprint(auth_data.bytes)
 
-    auth_key_to_send_bad = EncryptData(
-        plain_text=str(auth_key_uuid), key=HAS_AUTH_REQ_SECRET
+    b64_auth_data_encrypted = encrypt(auth_data.bytes, auth_key)
+    pprint(b64_auth_data_encrypted)
+
+    b64_auth_key_encrypted = encrypt(
+        str_bytes(auth_key_uuid), str_bytes(HAS_AUTH_REQ_SECRET)
     )
-
-    payload_base64 = base64.b64encode(data_str.encode("utf-8"))
-
-    encrypted_payload = encrypt(payload_base64, auth_key_uuid.bytes)
-    b64_encrypted_payload = base64.b64encode(encrypted_payload).decode("utf-8")
-
-    encrypted_auth_key = encrypt(auth_key_uuid.bytes, HAS_AUTH_REQ_SECRET.bytes)
-    b64_encrypted_auth_key = base64.b64encode(encrypted_auth_key).decode("utf-8")
+    pprint(b64_auth_key_encrypted)
 
     auth_req = AuthReqHAS.parse_obj(
         {
-            "account": "v4vapp.dev",
-            "data": b64_encrypted_payload,
-            "auth_key": b64_encrypted_auth_key,
+            "account": HIVE_ACCOUNT,
+            "data": b64_auth_data_encrypted,
+            "auth_key": b64_auth_key_encrypted,
         }
     )
 
     async with connect(uri) as websocket:
         await websocket.send("Let's get this party started!")
         msg = await websocket.recv()
-        fails = await websocket.recv()  # need this failure
         pprint(json.loads(msg))
+        msg2 = await websocket.recv()  # need this failure
+        pprint(json.loads(msg2))
         await websocket.send(auth_req.json())
         msg = await websocket.recv()
         auth_wait = json.loads(msg)
@@ -201,10 +224,9 @@ async def hello(uri):
 
         auth_payload = AuthPayloadHAS.parse_obj(
             {
-                "account": "v4vapp.dev",
+                "account": HIVE_ACCOUNT,
                 "uuid": auth_wait["uuid"],
-                "auth_key": b64_encrypted_auth_key,
-                # "auth_key": base64.b64encode(test_encrypt).decode("utf-8"),
+                "key": str(auth_key_uuid),
             }
         )
         pprint(json.dumps(auth_payload, default=str, indent=2))
@@ -213,6 +235,40 @@ async def hello(uri):
         )
         qr_text = f"has://auth_req/{auth_payload_base64}"
         print(qr_text)
+
+        print("-" * 50)
+
+        msg = await websocket.recv()
+        auth_ack = json.loads(msg)
+        pprint(auth_ack)
+        if auth_ack["uuid"] == auth_wait["uuid"]:
+            print("uuid OK")
+            data_bytes = auth_ack["data"].encode("utf-8")
+
+            decrypted_auth_ack = json.loads(
+                decrypt(data_bytes, auth_key).decode("utf-8")
+            )
+            pprint(decrypted_auth_ack)
+            if decrypted_auth_ack.get("challenge"):
+                signed_answer_data = SignedAnswerData(
+                    answer_type="HAS",
+                    username=auth_payload.account,
+                    message=auth_data.challenge.challenge,
+                    method=auth_data.challenge.key_type,
+                    key=auth_data.challenge.key_type,
+                )
+                signed_answer = SignedAnswer(
+                    success=True,
+                    error=None,
+                    result=decrypted_auth_ack["challenge"]["challenge"],
+                    data=signed_answer_data,
+                    request_id=1,
+                    publicKey=decrypted_auth_ack["challenge"]["pubkey"],
+                )
+
+                blobby = validate_hivekeychain_ans(signed_answer)
+                if blobby:
+                    print("Authentication successful")
 
 
 asyncio.run(hello(HAS_SERVER))

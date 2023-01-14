@@ -44,3 +44,4 @@ class User(Account, UserMixin):
 
     def json_posting_json_metadata(self):
         return json.dumps(self.posting_json_metadata, indent=2)
+

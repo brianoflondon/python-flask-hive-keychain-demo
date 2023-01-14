@@ -21,7 +21,7 @@ def unpad(data):
     return data[: -(data[-1] if type(data[-1]) == int else ord(data[-1]))]
 
 
-def bytes_to_key(data, salt, output=48):
+def bytes_to_key(data: bytes, salt: bytes, output: int = 48) -> bytes:
     # extended from https://gist.github.com/gsakkis/4546068
     assert len(salt) == 8, len(salt)
     data += salt
@@ -33,7 +33,7 @@ def bytes_to_key(data, salt, output=48):
     return final_key[:output]
 
 
-def encrypt(message, passphrase):
+def encrypt(message: bytes, passphrase: bytes) -> bytes:
     salt = Random.new().read(8)
     key_iv = bytes_to_key(passphrase, salt, 32 + 16)
     key = key_iv[:32]
@@ -42,7 +42,7 @@ def encrypt(message, passphrase):
     return base64.b64encode(b"Salted__" + salt + aes.encrypt(pad(message)))
 
 
-def decrypt(encrypted, passphrase):
+def decrypt(encrypted: bytes, passphrase: bytes):
     encrypted = base64.b64decode(encrypted)
     assert encrypted[0:8] == b"Salted__"
     salt = encrypted[8:16]
@@ -74,7 +74,7 @@ msg = {"a": "1", "b": "2"}
 password2 = uuid4()
 print("password2", password2)
 msg_b = json.dumps(msg).encode("utf-8")
-
+print(msg_b)
 print(encrypt(msg_b, str(password2).encode()))
 
 # testing:

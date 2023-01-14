@@ -1,3 +1,4 @@
+from datetime import timedelta
 import json
 import logging
 import time
@@ -15,8 +16,10 @@ from flask import (
     render_template,
     request,
     url_for,
+    session
 )
 from flask_login import current_user, login_required, login_user, logout_user
+from pydantic import BaseModel
 
 from flaskblog import app
 from flaskblog.forms import LoginForm
@@ -45,6 +48,28 @@ def login():
     return render_template("login.html", title="Login", form=form)
 
 
+class SignedAnswerData(BaseModel):
+    type: str
+    username: str
+    message: str
+    method: str
+    key: str
+
+
+class SignedAnswer(BaseModel):
+    success: bool
+    error: str | None
+    result: str
+    data: SignedAnswerData
+    message: str
+    request_id: int
+    publicKey: str
+
+    @property
+    def public_key(self) -> PublicKey:
+        return PublicKey(self.publicKey)
+
+
 @app.route("/hive/login", methods=["GET", "POST"])
 def hive_login():
     """Handle the answer from the Hive Keychain browser extension"""
@@ -54,12 +79,13 @@ def hive_login():
     if request.method == "POST" and request.data:
         logging.info(f"{request.data}")
         ans = json.loads(request.data.decode("utf-8"))
+        signed_answer = SignedAnswer.parse_obj(ans)
         logging.info(ans)
-        if ans["success"] and validate_hivekeychain_ans(ans):
+        if signed_answer.success and validate_hivekeychain_ans(signed_answer):
             acc_name = ans["data"]["username"]
             user = User(account=acc_name)
             if user:
-                login_user(user, remember=True)
+                login_user(user, remember=True, duration=timedelta(days=10))
                 flash(f"Welcome back - @{user.name}", "info")
                 app.logger.info(f"{acc_name} logged in successfully")
                 return make_response({"loadPage": url_for("home")}, 200)
@@ -75,23 +101,24 @@ def hive_login():
             return make_response({"loadPage": url_for("login")}, 401)
 
 
-def validate_hivekeychain_ans(ans):
+def validate_hivekeychain_ans(signed_answer: SignedAnswer):
     """takes in the answer from hivekeychain and checks everything"""
     """ https://bit.ly/keychainpython """
 
-    acc_name = ans["data"]["username"]
-    pubkey = PublicKey(ans["publicKey"])
-    enc_msg = ans["data"]["message"]
-    signature = ans["result"]
+    acc_name = signed_answer.data.username  # ans["data"]["username"]
+    pubkey_s = signed_answer.publicKey  # PublicKey(ans["publicKey"])
+    pubkey = signed_answer.public_key
+    enc_msg = signed_answer.data.message  # ans["data"]["message"]
+    signature = signed_answer.result  # ans["result"]
 
     msgkey = verify_message(enc_msg, unhexlify(signature))
     pk = PublicKey(hexlify(msgkey).decode("ascii"))
     if str(pk) == str(pubkey):
         app.logger.info(f"{acc_name} SUCCESS: signature matches given pubkey")
-        acc = Account(acc_name, lazy=True)
+        acc = Account(acc_name, lazy=False)
         match = False, 0
         for key in acc["posting"]["key_auths"]:
-            match = match or ans["publicKey"] in key
+            match = match or pubkey_s in key
         if match:
             app.logger.info(f"{acc_name} Matches public key from Hive")
             mtime = json.loads(enc_msg)["timestamp"]
