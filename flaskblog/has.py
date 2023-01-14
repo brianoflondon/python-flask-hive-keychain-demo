@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from hashlib import md5
 from pprint import pprint
+from typing import Any
 from uuid import UUID, uuid4
 
 from beem.account import Account
@@ -149,6 +150,17 @@ class ChallengeHAS(BaseModel):
     key_type: KeyType = KeyType.posting
     challenge: str
 
+    def __init__(__pydantic_self__, **data: Any) -> None:
+        if not data.get('challenge_data'):
+            raise KeyError('challenge_data is required')
+        if "timestamp" not in data["challenge_data"].keys():
+            data["challenge_data"]["timestamp"] = datetime.utcnow().timestamp()
+        data["challenge"] = json.dumps(data.get('challenge_data'))
+        super().__init__(**data)
+
+    def challenge(self) -> str:
+        return json.dumps(self.challenge_data)
+
 
 class AuthDataHAS(BaseModel):
     app: HASApp = HASApp()
@@ -198,6 +210,8 @@ class AuthAckNakErrHAS(BaseModel):
     cmd: CmdType
     uuid: UUID
     data: str
+    # class HASAuthentication(BaseModel):
+    #     auth_key: UUID = uuid4()
     auth_key: bytes | None
     auth_data: AuthDataHAS | None
     auth_payload: AuthPayloadHAS | None
@@ -243,12 +257,10 @@ async def hello(uri):
     auth_key = str_bytes(auth_key_uuid)
 
     challenge = ChallengeHAS(
-        challenge=json.dumps(
-            {
-                "timestamp": datetime.utcnow().timestamp(),
-                "message": "Can't stop this challenge",
-            }
-        )
+        challenge_data={
+            "timestamp": datetime.utcnow().timestamp(),
+            "message": "Can't stop this challenge",
+        }
     )
     auth_data = AuthDataHAS(challenge=challenge)
     pprint(auth_data.bytes)
@@ -306,7 +318,6 @@ async def hello(uri):
                 pprint(
                     f"Authentication successful in {auth_ack.time_to_validate.seconds:.2f} seconds"
                 )
-
 
 
 asyncio.run(hello(HAS_SERVER))
