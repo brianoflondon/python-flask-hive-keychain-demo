@@ -3,21 +3,24 @@ import base64
 import json
 import logging
 import os
-from binascii import hexlify, unhexlify
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from enum import Enum
 from hashlib import md5
 from pprint import pprint
 from typing import Any
 from uuid import UUID, uuid4
-
-from beem.account import Account
-from beemgraphenebase.account import PublicKey
-from beemgraphenebase.ecdsasig import verify_message
-
+from qrcode import QRCode
+from qrcode.constants import ERROR_CORRECT_H
+from qrcode.image.styledpil import StyledPilImage
 # from Crypto.Cipher import AES
 from Cryptodome import Random
 from Cryptodome.Cipher import AES
+from hivevalidation import (
+    SignedAnswer,
+    SignedAnswerData,
+    SignedAnswerVerification,
+    validate_hivekeychain_ans,
+)
 from pydantic import AnyUrl, BaseModel
 from websockets import connect
 from websockets.legacy.client import WebSocketClientProtocol
@@ -27,7 +30,7 @@ from websockets.legacy.client import WebSocketClientProtocol
 # https://devpress.csdn.net/python/630460127e6682346619ab98.html
 
 BLOCK_SIZE = AES.block_size
-HIVE_ACCOUNT = "v4vapp"
+HIVE_ACCOUNT = "brianoflondon"
 HAS_AUTHENTICATION_TIME_LIMIT = 600
 
 logging.basicConfig(
@@ -36,80 +39,6 @@ logging.basicConfig(
     # format="{asctime} {levelname} {module} {lineno:>5} : {message}",
     # datefmt="%Y-%m-%dT%H:%M:%S,uuu",
 )
-
-
-class SignedAnswerData(BaseModel):
-    answer_type: str
-    username: str
-    message: str
-    method: str
-    key: str
-
-
-class SignedAnswer(BaseModel):
-    success: bool = False
-    error: str | None
-    result: str
-    data: SignedAnswerData
-    message: str | None  # Message from the server
-    request_id: int
-    publicKey: str | None
-
-    @property
-    def public_key(self) -> PublicKey:
-        return PublicKey(self.publicKey)
-
-
-class SignedAnswerVerification(BaseModel):
-    acc_name: str
-    success: bool
-    pubkey: str
-    elapsed_time: timedelta
-
-
-def validate_hivekeychain_ans(signed_answer: SignedAnswer) -> SignedAnswerVerification:
-    """takes in the answer from hivekeychain and checks everything"""
-    """ https://bit.ly/keychainpython """
-
-    acc_name = signed_answer.data.username  # ans["data"]["username"]
-    pubkey_s = signed_answer.publicKey  # PublicKey(ans["publicKey"])
-    pubkey = signed_answer.public_key
-    enc_msg = signed_answer.data.message  # ans["data"]["message"]
-    signature = signed_answer.result  # ans["result"]
-
-    msgkey = verify_message(enc_msg, unhexlify(signature))
-    pk = PublicKey(hexlify(msgkey).decode("ascii"))
-    if str(pk) == str(pubkey):
-        logging.info(f"{acc_name} SUCCESS: signature matches given pubkey")
-        acc = Account(acc_name, lazy=True)
-        match = False, 0
-        for key in acc["posting"]["key_auths"]:
-            match = match or pubkey_s in key
-        if match:
-            logging.info(f"{acc_name} Matches public key from Hive")
-            mtime = json.loads(enc_msg)["timestamp"]
-            elapsed_time = datetime.now(tz=timezone.utc).timestamp() - mtime
-            if elapsed_time < HAS_AUTHENTICATION_TIME_LIMIT:
-                logging.info(f"{acc_name} SUCCESS: in {elapsed_time} seconds")
-                return SignedAnswerVerification(
-                    acc_name=acc_name,
-                    success=True,
-                    pubkey=pubkey_s,
-                    elapsed_time=elapsed_time,
-                )
-            else:
-                logging.info(f"{acc_name} ERROR: answer took too long.")
-                return SignedAnswerVerification(
-                    acc_name=acc_name,
-                    success=False,
-                    pubkey=pubkey_s,
-                    elapsed_time=elapsed_time,
-                )
-    else:
-        logging.info(f"{acc_name} ERROR: message was signed with a different key")
-        return SignedAnswerVerification(
-            acc_name=acc_name, success=False, pubkey=pubkey_s, elapsed_time=elapsed_time
-        )
 
 
 def pad(data):
@@ -388,6 +317,35 @@ class HASAuthentication(BaseModel):
                 logging.warning("Authentication refuse: integrity FAILURE")
                 raise HASAuthenticationRefused("Integrity FAILURE")
 
+    async def get_qrcode(self) -> StyledPilImage:
+        if self.qr_text:
+            folder = "/tmp/"
+            avatar_file = os.path.join(folder, f"{self.hive_acc}_avatar_temp.png")
+            # qr_file = os.path.join(folder, f"qr_{self.qr_text}.png")
+
+            # res = await get_hive_avatar_response(hive_accname)
+            # if res.status_code == 200:
+            #     # avatar_im = Image.open(BytesIO(res.content))
+            #     with open(avatar_file, "wb") as file:
+            #         file.write(res.content)
+            qr = QRCode(
+                version=1,
+                error_correction=ERROR_CORRECT_H,
+                box_size=10,
+                border=1,
+            )
+            qr.add_data(self.qr_text)
+
+            if os.path.exists(avatar_file):
+                img = qr.make_image(
+                    image_factory=StyledPilImage, embeded_image_path=avatar_file
+                )
+            else:
+                img = qr.make_image()
+            img.show()
+            # img.save(qr_file)
+            return img
+
     async def connect_with_challenge(self):
         if self.token and self.expire and datetime.now(tz=timezone.utc) < self.expire:
             # Sets up the challenge with the existing token if it exists.
@@ -450,6 +408,7 @@ async def hello(uri):
             has.token = "c3da8aa3-777e-4581-883a-2a41b974dbac"
             has.websocket = websocket
             time_to_wait = await has.connect_with_challenge()
+            await has.get_qrcode()
             pprint(has.qr_text)
             await has.waiting_for_challenge_response(time_to_wait)
 
@@ -460,81 +419,17 @@ async def hello(uri):
             )
             logging.info(has.app_session_id)
 
-
-        # has2 = HASAuthentication(token=has.auth_ack_data.token)
-        # await has2.connect_with_challenge()
+        # async with connect(has.uri) as websocket:
+        #     has2 = HASAuthentication(token=has.auth_ack_data.token, websocket=websocket)
+        #     time_to_wait = await has2.connect_with_challenge()
+        #     print(has.qr_text)
+        #     await has.waiting_for_challenge_response(time_to_wait)
 
     except (HASAuthenticationRefused, HASAuthenticationTimeout):
         pass
 
     return
 
-    auth_key_uuid = uuid4()
-    auth_key = str_bytes(auth_key_uuid)
 
-    challenge = ChallengeHAS(
-        challenge_data={
-            "timestamp": datetime.utcnow().timestamp(),
-            "message": "Can't stop this challenge",
-        }
-    )
-    auth_data = AuthDataHAS(challenge=challenge)
-    logging.info(auth_data.bytes)
-
-    b64_auth_data_encrypted = encrypt(auth_data.bytes, auth_key)
-    logging.info(b64_auth_data_encrypted)
-
-    b64_auth_key_encrypted = encrypt(
-        str_bytes(auth_key_uuid), str_bytes(HAS_AUTH_REQ_SECRET)
-    )
-    logging.info(b64_auth_key_encrypted)
-
-    auth_req = AuthReqHAS.parse_obj(
-        {
-            "account": HIVE_ACCOUNT,
-            "data": b64_auth_data_encrypted,
-            "auth_key": b64_auth_key_encrypted,
-        }
-    )
-
-    async with connect(uri) as websocket:
-        await websocket.send("Let's get this party started!")
-        msg = await websocket.recv()
-        logging.info(json.loads(msg))
-        msg2 = await websocket.recv()  # need this failure
-        logging.info(json.loads(msg2))
-        await websocket.send(auth_req.json())
-        msg = await websocket.recv()
-        auth_wait = AuthWaitHAS.parse_raw(msg)
-        logging.info(json.loads(msg))
-
-        auth_payload = AuthPayloadHAS(
-            account=HIVE_ACCOUNT, uuid=auth_wait.uuid, key=auth_key_uuid
-        )
-
-        logging.info(json.dumps(auth_payload, default=str, indent=2))
-        auth_payload_base64 = base64.b64encode((auth_payload.json()).encode()).decode(
-            "utf-8"
-        )
-        qr_text = f"has://auth_req/{auth_payload_base64}"
-        logging.info(qr_text)
-
-        logging.info("-" * 50)
-
-        msg = await websocket.recv()
-        auth_ack = HASAuthentication.parse_raw(msg)
-        auth_ack.auth_key_uuid = auth_key_uuid
-        auth_ack.auth_data = auth_data
-        auth_ack.auth_payload = auth_payload
-        logging.info(auth_ack)
-        if auth_ack.uuid == auth_wait.uuid:
-            logging.info("uuid OK")
-            auth_ack.decrypt()
-            if auth_ack.validated:
-                logging.info(
-                    f"Authentication successful in {auth_ack.time_to_validate.seconds:.2f} seconds"
-                )
-
-
-# asyncio.run(log_on(HAS_SERVER))
-asyncio.run(hello(HAS_SERVER))
+if __name__ == "__main__":
+    asyncio.run(hello(HAS_SERVER))

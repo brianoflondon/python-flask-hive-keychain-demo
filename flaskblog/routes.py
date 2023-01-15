@@ -16,7 +16,6 @@ from flask import (
     render_template,
     request,
     url_for,
-    session
 )
 from flask_login import current_user, login_required, login_user, logout_user
 from pydantic import BaseModel
@@ -24,7 +23,8 @@ from pydantic import BaseModel
 from flaskblog import app
 from flaskblog.forms import LoginForm
 from flaskblog.models import User
-
+from flaskblog.hivevalidation import validate_hivekeychain_ans
+# from flaskblog.has import HASApp
 
 @app.route("/home", strict_slashes=False)
 @app.route("/")
@@ -81,56 +81,58 @@ def hive_login():
         ans = json.loads(request.data.decode("utf-8"))
         signed_answer = SignedAnswer.parse_obj(ans)
         logging.info(ans)
-        if signed_answer.success and validate_hivekeychain_ans(signed_answer):
-            acc_name = ans["data"]["username"]
-            user = User(account=acc_name)
-            if user:
-                login_user(user, remember=True, duration=timedelta(days=10))
-                flash(f"Welcome back - @{user.name}", "info")
-                app.logger.info(f"{acc_name} logged in successfully")
-                return make_response({"loadPage": url_for("home")}, 200)
-                # return redirect(url_for('podcaster.dashboard'))
-            else:
-                user = User(username=acc_name)
-                flash(f"Welcome - @{user.username}", "info")
-                app.logger.info(f"{acc_name} logged in for the first time")
-                return make_response({"loadPage": url_for("home")}, 200)
-                # return redirect(url_for('podcaster.dashboard'))
+        if signed_answer.success:
+            verification = validate_hivekeychain_ans(signed_answer)
+            if verification.success:
+                acc_name = verification.acc_name
+                user = User(account=acc_name)
+                if user:
+                    login_user(user, remember=True, duration=timedelta(days=10))
+                    flash(f"Welcome back - @{user.name}", "info")
+                    app.logger.info(f"{acc_name} logged in successfully")
+                    return make_response({"loadPage": url_for("home")}, 200)
+                    # return redirect(url_for('podcaster.dashboard'))
+                else:
+                    user = User(username=acc_name)
+                    flash(f"Welcome - @{user.username}", "info")
+                    app.logger.info(f"{acc_name} logged in for the first time")
+                    return make_response({"loadPage": url_for("home")}, 200)
+                    # return redirect(url_for('podcaster.dashboard'))
         else:
             flash("Not Authorised", "danger")
             return make_response({"loadPage": url_for("login")}, 401)
 
 
-def validate_hivekeychain_ans(signed_answer: SignedAnswer):
-    """takes in the answer from hivekeychain and checks everything"""
-    """ https://bit.ly/keychainpython """
+# def validate_hivekeychain_ans(signed_answer: SignedAnswer):
+#     """takes in the answer from hivekeychain and checks everything"""
+#     """ https://bit.ly/keychainpython """
 
-    acc_name = signed_answer.data.username  # ans["data"]["username"]
-    pubkey_s = signed_answer.publicKey  # PublicKey(ans["publicKey"])
-    pubkey = signed_answer.public_key
-    enc_msg = signed_answer.data.message  # ans["data"]["message"]
-    signature = signed_answer.result  # ans["result"]
+#     acc_name = signed_answer.data.username  # ans["data"]["username"]
+#     pubkey_s = signed_answer.publicKey  # PublicKey(ans["publicKey"])
+#     pubkey = signed_answer.public_key
+#     enc_msg = signed_answer.data.message  # ans["data"]["message"]
+#     signature = signed_answer.result  # ans["result"]
 
-    msgkey = verify_message(enc_msg, unhexlify(signature))
-    pk = PublicKey(hexlify(msgkey).decode("ascii"))
-    if str(pk) == str(pubkey):
-        app.logger.info(f"{acc_name} SUCCESS: signature matches given pubkey")
-        acc = Account(acc_name, lazy=False)
-        match = False, 0
-        for key in acc["posting"]["key_auths"]:
-            match = match or pubkey_s in key
-        if match:
-            app.logger.info(f"{acc_name} Matches public key from Hive")
-            mtime = json.loads(enc_msg)["timestamp"]
-            time_since = time.time() - mtime
-            if time_since < 30:
-                app.logger.info(f"{acc_name} SUCCESS: in {time_since} seconds")
-                return True, time_since
-            else:
-                app.logger.warning(f"{acc_name} ERROR: answer took too long.")
-    else:
-        app.logger.warning(f"{acc_name} ERROR: message was signed with a different key")
-        return False, 0
+#     msgkey = verify_message(enc_msg, unhexlify(signature))
+#     pk = PublicKey(hexlify(msgkey).decode("ascii"))
+#     if str(pk) == str(pubkey):
+#         app.logger.info(f"{acc_name} SUCCESS: signature matches given pubkey")
+#         acc = Account(acc_name, lazy=False)
+#         match = False, 0
+#         for key in acc["posting"]["key_auths"]:
+#             match = match or pubkey_s in key
+#         if match:
+#             app.logger.info(f"{acc_name} Matches public key from Hive")
+#             mtime = json.loads(enc_msg)["timestamp"]
+#             time_since = time.time() - mtime
+#             if time_since < 30:
+#                 app.logger.info(f"{acc_name} SUCCESS: in {time_since} seconds")
+#                 return True, time_since
+#             else:
+#                 app.logger.warning(f"{acc_name} ERROR: answer took too long.")
+#     else:
+#         app.logger.warning(f"{acc_name} ERROR: message was signed with a different key")
+#         return False, 0
 
 
 @app.route("/lookup", methods=["GET", "POST"])
