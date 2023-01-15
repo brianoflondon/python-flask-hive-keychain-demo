@@ -20,17 +20,18 @@ from Cryptodome import Random
 from Cryptodome.Cipher import AES
 from pydantic import AnyUrl, BaseModel
 from websockets import connect
+from websockets.legacy.client import WebSocketClientProtocol
 
 # https://stackoverflow.com/questions/35472396/how-does-cryptojs-get-an-iv-when-none-is-specified
 # https://gist.github.com/tly1980/b6c2cc10bb35cb4446fb6ccf5ee5efbc
 # https://devpress.csdn.net/python/630460127e6682346619ab98.html
 
 BLOCK_SIZE = AES.block_size
-HIVE_ACCOUNT = "v4vapp.dev"
+HIVE_ACCOUNT = "v4vapp"
 HAS_AUTHENTICATION_TIME_LIMIT = 600
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(asctime)s %(levelname)-8s %(module)-14s %(lineno) 5d : %(message)s",
     # format="{asctime} {levelname} {module} {lineno:>5} : {message}",
     # datefmt="%Y-%m-%dT%H:%M:%S,uuu",
@@ -87,7 +88,7 @@ def validate_hivekeychain_ans(signed_answer: SignedAnswer) -> SignedAnswerVerifi
         if match:
             logging.info(f"{acc_name} Matches public key from Hive")
             mtime = json.loads(enc_msg)["timestamp"]
-            elapsed_time = datetime.utcnow().timestamp() - mtime
+            elapsed_time = datetime.now(tz=timezone.utc).timestamp() - mtime
             if elapsed_time < HAS_AUTHENTICATION_TIME_LIMIT:
                 logging.info(f"{acc_name} SUCCESS: in {elapsed_time} seconds")
                 return SignedAnswerVerification(
@@ -223,6 +224,10 @@ class HASAuthenticationRefused(Exception):
     pass
 
 
+class HASAuthenticationTimeout(Exception):
+    pass
+
+
 class AuthDataHAS(BaseModel):
     app: HASApp = HASApp()
     token: str | None
@@ -239,7 +244,7 @@ class AuthReqHAS(BaseModel):
     account: str
     data: str
     token: str | None
-    auth_key: str
+    auth_key: str | None
 
 
 class AuthPayloadHAS(BaseModel):
@@ -275,6 +280,7 @@ class AuthAckData(BaseModel):
 class HASAuthentication(BaseModel):
     hive_acc: str = HIVE_ACCOUNT
     uri: AnyUrl = HAS_SERVER
+    websocket: WebSocketClientProtocol | None
     challenge_message: str | None
     app_session_id: UUID = uuid4()
     auth_key_uuid: UUID = uuid4()
@@ -288,6 +294,13 @@ class HASAuthentication(BaseModel):
     verification: SignedAnswerVerification | None
     token: str | None
     expire: datetime | None
+
+    class Config:
+        arbitrary_types_allowed = True
+
+    def __init__(self, **data: Any):
+        super().__init__(**data)
+        self.setup_challenge(**data)
 
     @property
     def auth_ack_data(self) -> AuthAckData | str:
@@ -310,20 +323,27 @@ class HASAuthentication(BaseModel):
     def b64_auth_payload_encrypted(self):
         return encrypt(str_bytes(self.auth_key_uuid), str_bytes(HAS_AUTH_REQ_SECRET))
 
-    def __init__(self, **data: Any):
-        super().__init__(**data)
+    @property
+    def qr_text(self) -> str:
+        auth_payload_base64 = base64.b64encode(
+            (self.auth_payload.json()).encode()
+        ).decode("utf-8")
+        return f"has://auth_req/{auth_payload_base64}"
+
+    def setup_challenge(self, **data: Any):
         try:
             challenge = ChallengeHAS(
                 challenge_data={
-                    "timestamp": datetime.utcnow().timestamp(),
+                    "timestamp": datetime.now(tz=timezone.utc).timestamp(),
                     "app_session_id": self.app_session_id,
                     "message": data.get("challenge_message"),
                 }
             )
-            self.auth_data = AuthDataHAS(challenge=challenge, token=data.get("token"))
+            self.auth_data = AuthDataHAS(challenge=challenge, token=self.token)
             self.auth_req = AuthReqHAS(
                 account=HIVE_ACCOUNT,
                 data=self.b64_auth_data_encrypted,
+                # Auth Key needed for using a PKSA Service without QR codes
                 auth_key=self.b64_auth_payload_encrypted,
             )
         except KeyError as ex:
@@ -369,36 +389,48 @@ class HASAuthentication(BaseModel):
                 raise HASAuthenticationRefused("Integrity FAILURE")
 
     async def connect_with_challenge(self):
-        async with connect(self.uri) as websocket:
-            try:
-                msg = await websocket.recv()
-                self.connected_has = ConnectedHAS.parse_raw(msg)
-                logging.debug(self.connected_has)
-            except Exception as ex:
-                logging.error(ex)
-            pprint(msg)
-            await websocket.send(self.auth_req.json())
-            msg = await websocket.recv()
-            self.auth_wait = AuthWaitHAS.parse_raw(msg)
-            self.auth_payload = AuthPayloadHAS(
-                account=self.hive_acc, uuid=self.auth_wait.uuid, key=self.auth_key_uuid
-            )
-            msg = await websocket.recv()
-            self.auth_ack = AuthAckNakErrHAS.parse_raw(msg)
-            logging.debug(self.auth_ack)
-            if self.auth_ack.uuid == self.auth_wait.uuid:
-                logging.info("uuid OK")
-                self.decrypt()
-                if self.verification.success:
-                    logging.info(
-                        f"Authentication successful in "
-                        f"{self.verification.elapsed_time.seconds:.2f} seconds"
-                    )
-                    self.token = self.auth_ack_data.token
-                    self.expire = self.auth_ack_data.expire
-                else:
-                    logging.warning("Not successful")
-                    raise HASAuthenticationRefused("Integrity good")
+        if self.token and self.expire and datetime.now(tz=timezone.utc) < self.expire:
+            # Sets up the challenge with the existing token if it exists.
+            self.setup_challenge()
+        try:
+            msg = await self.websocket.recv()
+            self.connected_has = ConnectedHAS.parse_raw(msg)
+            logging.debug(self.connected_has)
+        except Exception as ex:
+            logging.error(ex)
+        await self.websocket.send(self.auth_req.json())
+        msg = await self.websocket.recv()
+        self.auth_wait = AuthWaitHAS.parse_raw(msg)
+        self.auth_payload = AuthPayloadHAS(
+            account=self.hive_acc, uuid=self.auth_wait.uuid, key=self.auth_key_uuid
+        )
+        time_to_wait = self.auth_wait.expire - datetime.now(tz=timezone.utc)
+        logging.info(self.qr_text)
+        logging.debug(f"Waiting for PKSA: {time_to_wait}")
+        return time_to_wait
+
+    async def waiting_for_challenge_response(self, time_to_wait: int):
+        try:
+            msg = await asyncio.wait_for(self.websocket.recv(), time_to_wait.seconds)
+        except TimeoutError:
+            logging.warning("Timeout waiting for HAS PKSA Response")
+            raise HASAuthenticationTimeout("Timeout waiting for response")
+
+        self.auth_ack = AuthAckNakErrHAS.parse_raw(msg)
+        logging.debug(self.auth_ack)
+        if self.auth_ack.uuid == self.auth_wait.uuid:
+            logging.info("uuid OK")
+            self.decrypt()
+            if self.verification.success:
+                logging.info(
+                    f"Authentication successful in "
+                    f"{self.verification.elapsed_time.seconds:.2f} seconds"
+                )
+                self.token = self.auth_ack_data.token
+                self.expire = self.auth_ack_data.expire
+            else:
+                logging.warning("Not successful")
+                raise HASAuthenticationRefused("Integrity good")
 
     async def connect_with_token(self):
         """
@@ -414,15 +446,25 @@ async def hello(uri):
         challenge_message="Any string message goes here",
     )
     try:
-        await has.connect_with_challenge()
-        logging.info(has.auth_ack_data.token)
-        token_life = has.auth_ack_data.expire - datetime.now(tz=timezone.utc)
-        logging.info(f"Token: {has.auth_ack_data.token} | Expires in : {token_life}")
-        logging.info(has.app_session_id)
+        async with connect(has.uri) as websocket:
+            has.token = "c3da8aa3-777e-4581-883a-2a41b974dbac"
+            has.websocket = websocket
+            time_to_wait = await has.connect_with_challenge()
+            pprint(has.qr_text)
+            await has.waiting_for_challenge_response(time_to_wait)
 
-        await has.connect_with_challenge()
+            logging.info(has.auth_ack_data.token)
+            token_life = has.auth_ack_data.expire - datetime.now(tz=timezone.utc)
+            logging.info(
+                f"Token: {has.auth_ack_data.token} | Expires in : {token_life}"
+            )
+            logging.info(has.app_session_id)
 
-    except HASAuthenticationRefused:
+
+        # has2 = HASAuthentication(token=has.auth_ack_data.token)
+        # await has2.connect_with_challenge()
+
+    except (HASAuthenticationRefused, HASAuthenticationTimeout):
         pass
 
     return
