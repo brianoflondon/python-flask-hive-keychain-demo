@@ -1,9 +1,10 @@
 import asyncio
 import base64
 import json
+import logging
 import os
 from binascii import hexlify, unhexlify
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from hashlib import md5
 from pprint import pprint
@@ -17,14 +18,23 @@ from beemgraphenebase.ecdsasig import verify_message
 # from Crypto.Cipher import AES
 from Cryptodome import Random
 from Cryptodome.Cipher import AES
-from pydantic import BaseModel
+from pydantic import AnyUrl, BaseModel
 from websockets import connect
 
-BLOCK_SIZE = AES.block_size
 # https://stackoverflow.com/questions/35472396/how-does-cryptojs-get-an-iv-when-none-is-specified
 # https://gist.github.com/tly1980/b6c2cc10bb35cb4446fb6ccf5ee5efbc
 # https://devpress.csdn.net/python/630460127e6682346619ab98.html
+
+BLOCK_SIZE = AES.block_size
 HIVE_ACCOUNT = "v4vapp.dev"
+HAS_AUTHENTICATION_TIME_LIMIT = 600
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)-8s %(module)-14s %(lineno) 5d : %(message)s",
+    # format="{asctime} {levelname} {module} {lineno:>5} : {message}",
+    # datefmt="%Y-%m-%dT%H:%M:%S,uuu",
+)
 
 
 class SignedAnswerData(BaseModel):
@@ -42,14 +52,21 @@ class SignedAnswer(BaseModel):
     data: SignedAnswerData
     message: str | None  # Message from the server
     request_id: int
-    publicKey: str
+    publicKey: str | None
 
     @property
     def public_key(self) -> PublicKey:
         return PublicKey(self.publicKey)
 
 
-def validate_hivekeychain_ans(signed_answer: SignedAnswer):
+class SignedAnswerVerification(BaseModel):
+    acc_name: str
+    success: bool
+    pubkey: str
+    elapsed_time: timedelta
+
+
+def validate_hivekeychain_ans(signed_answer: SignedAnswer) -> SignedAnswerVerification:
     """takes in the answer from hivekeychain and checks everything"""
     """ https://bit.ly/keychainpython """
 
@@ -62,23 +79,36 @@ def validate_hivekeychain_ans(signed_answer: SignedAnswer):
     msgkey = verify_message(enc_msg, unhexlify(signature))
     pk = PublicKey(hexlify(msgkey).decode("ascii"))
     if str(pk) == str(pubkey):
-        print(f"{acc_name} SUCCESS: signature matches given pubkey")
+        logging.info(f"{acc_name} SUCCESS: signature matches given pubkey")
         acc = Account(acc_name, lazy=True)
         match = False, 0
         for key in acc["posting"]["key_auths"]:
             match = match or pubkey_s in key
         if match:
-            print(f"{acc_name} Matches public key from Hive")
+            logging.info(f"{acc_name} Matches public key from Hive")
             mtime = json.loads(enc_msg)["timestamp"]
-            time_since = datetime.utcnow().timestamp() - mtime
-            if time_since < 30:
-                print(f"{acc_name} SUCCESS: in {time_since} seconds")
-                return True, time_since
+            elapsed_time = datetime.utcnow().timestamp() - mtime
+            if elapsed_time < HAS_AUTHENTICATION_TIME_LIMIT:
+                logging.info(f"{acc_name} SUCCESS: in {elapsed_time} seconds")
+                return SignedAnswerVerification(
+                    acc_name=acc_name,
+                    success=True,
+                    pubkey=pubkey_s,
+                    elapsed_time=elapsed_time,
+                )
             else:
-                print(f"{acc_name} ERROR: answer took too long.")
+                logging.info(f"{acc_name} ERROR: answer took too long.")
+                return SignedAnswerVerification(
+                    acc_name=acc_name,
+                    success=False,
+                    pubkey=pubkey_s,
+                    elapsed_time=elapsed_time,
+                )
     else:
-        print(f"{acc_name} ERROR: message was signed with a different key")
-        return False, 0
+        logging.info(f"{acc_name} ERROR: message was signed with a different key")
+        return SignedAnswerVerification(
+            acc_name=acc_name, success=False, pubkey=pubkey_s, elapsed_time=elapsed_time
+        )
 
 
 def pad(data):
@@ -123,7 +153,6 @@ def decrypt(encrypted: bytes, passphrase: bytes):
 
 
 HAS_SERVER = "wss://hive-auth.arcange.eu"
-# HAS_SERVER = "wss://p51-server"
 
 HAS_APP_DATA = {
     "name": "python-flask-demo",
@@ -146,20 +175,52 @@ class KeyType(str, Enum):
     memo = "memo"
 
 
+class ConnectedHAS(BaseModel):
+    cmd: str
+    server: str
+    socketid: str
+    timeout: int
+    ping_rate: int
+    version: str
+    protocol: float
+    received: datetime = datetime.utcnow()
+
+
+class CmdType(str, Enum):
+    auth_wait = "auth_wait"
+    auth_ack = "auth_ack"
+    auth_nack = "auth_nack"
+    auth_err = "auth_err"
+
+
 class ChallengeHAS(BaseModel):
     key_type: KeyType = KeyType.posting
     challenge: str
+    pubkey: str | None
 
     def __init__(__pydantic_self__, **data: Any) -> None:
-        if not data.get('challenge_data'):
-            raise KeyError('challenge_data is required')
-        if "timestamp" not in data["challenge_data"].keys():
-            data["challenge_data"]["timestamp"] = datetime.utcnow().timestamp()
-        data["challenge"] = json.dumps(data.get('challenge_data'))
+        if data.get("challenge_data"):
+            if "timestamp" not in data["challenge_data"].keys():
+                data["challenge_data"]["timestamp"] = datetime.utcnow().timestamp()
+            data["challenge"] = json.dumps(data.get("challenge_data"), default=str)
+        if not data.get("challenge"):
+            raise KeyError("challenge is required")
         super().__init__(**data)
 
-    def challenge(self) -> str:
-        return json.dumps(self.challenge_data)
+
+class ChallengeAckHAS(BaseModel):
+    cmd: CmdType = CmdType.auth_ack
+    uuid: UUID
+    data: str
+
+
+class ChallengeAckData(BaseModel):
+    pubkey: str
+    challenge: str
+
+
+class HASAuthenticationRefused(Exception):
+    pass
 
 
 class AuthDataHAS(BaseModel):
@@ -192,13 +253,6 @@ def str_bytes(uuid: UUID) -> bytes:
     return str(uuid).encode("utf-8")
 
 
-class CmdType(str, Enum):
-    auth_wait = "auth_wait"
-    auth_ack = "auth_ack"
-    auth_nack = "auth_nack"
-    auth_err = "auth_err"
-
-
 class AuthWaitHAS(BaseModel):
     cmd: CmdType
     uuid: UUID
@@ -207,35 +261,93 @@ class AuthWaitHAS(BaseModel):
 
 
 class AuthAckNakErrHAS(BaseModel):
-    cmd: CmdType
-    uuid: UUID
-    data: str
-    # class HASAuthentication(BaseModel):
-    #     auth_key: UUID = uuid4()
-    auth_key: bytes | None
+    cmd: CmdType | None
+    uuid: UUID | None
+    data: str | None
+
+
+class AuthAckData(BaseModel):
+    token: str
+    expire: datetime
+    challenge: ChallengeHAS = None
+
+
+class HASAuthentication(BaseModel):
+    hive_acc: str = HIVE_ACCOUNT
+    uri: AnyUrl = HAS_SERVER
+    challenge_message: str | None
+    app_session_id: UUID = uuid4()
+    auth_key_uuid: UUID = uuid4()
+    connected_has: ConnectedHAS | None
+    auth_wait: AuthWaitHAS | None
     auth_data: AuthDataHAS | None
+    auth_req: AuthReqHAS | None
     auth_payload: AuthPayloadHAS | None
+    auth_ack: AuthAckNakErrHAS | None
     signed_answer: SignedAnswer | None
-    validated: bool | None
-    time_to_validate: timedelta | None
+    verification: SignedAnswerVerification | None
+    token: str | None
+    expire: datetime | None
 
     @property
-    def decrypted_data(self) -> SignedAnswer:
-        data_bytes = self.data.encode("utf-8")
-        return json.loads(decrypt(data_bytes, self.auth_key).decode("utf-8"))
+    def auth_ack_data(self) -> AuthAckData | str:
+        data_bytes = self.auth_ack.data.encode("utf-8")
+        data_string = decrypt(data_bytes, str_bytes(self.auth_key_uuid)).decode("utf-8")
+        try:
+            return AuthAckData.parse_raw(data_string)
+        except json.JSONDecodeError:
+            return data_string
+
+    @property
+    def auth_key(self) -> bytes:
+        return self.auth_key_uuid.bytes
+
+    @property
+    def b64_auth_data_encrypted(self):
+        return encrypt(self.auth_data.bytes, str_bytes(self.auth_key_uuid))
+
+    @property
+    def b64_auth_payload_encrypted(self):
+        return encrypt(str_bytes(self.auth_key_uuid), str_bytes(HAS_AUTH_REQ_SECRET))
+
+    def __init__(self, **data: Any):
+        super().__init__(**data)
+        try:
+            challenge = ChallengeHAS(
+                challenge_data={
+                    "timestamp": datetime.utcnow().timestamp(),
+                    "app_session_id": self.app_session_id,
+                    "message": data.get("challenge_message"),
+                }
+            )
+            self.auth_data = AuthDataHAS(challenge=challenge, token=data.get("token"))
+            self.auth_req = AuthReqHAS(
+                account=HIVE_ACCOUNT,
+                data=self.b64_auth_data_encrypted,
+                auth_key=self.b64_auth_payload_encrypted,
+            )
+        except KeyError as ex:
+            logging.error(ex)
+            raise
 
     def decrypt(self):
+        """
+        Decrypts a challenge response received back from HAS.
+
+        Sets property `validated` to `True` and `time_to_validate` if
+        challenge is returned successfully
+        """
         if (
-            self.cmd == CmdType.auth_ack
+            self.auth_ack.cmd == CmdType.auth_ack
             and self.auth_key
             and self.auth_data
             and self.auth_payload
-            and self.data
+            and self.auth_ack.data
         ):
             self.signed_answer = SignedAnswer(
                 success=True,
                 error=None,
-                result=self.decrypted_data["challenge"]["challenge"],
+                result=self.auth_ack_data.challenge.challenge,
                 data=SignedAnswerData(
                     answer_type="HAS",
                     username=self.auth_payload.account,
@@ -244,15 +356,77 @@ class AuthAckNakErrHAS(BaseModel):
                     key=self.auth_data.challenge.key_type,
                 ),
                 request_id=1,
-                publicKey=self.decrypted_data["challenge"]["pubkey"],
+                publicKey=self.auth_ack_data.challenge.pubkey,
             )
-            self.validated, time_to_validate = validate_hivekeychain_ans(
-                self.signed_answer
+            self.verification = validate_hivekeychain_ans(self.signed_answer)
+        elif self.auth_ack.cmd == CmdType.auth_nack:
+            nack_data = self.auth_ack_data
+            if str(self.auth_payload.uuid) == nack_data:
+                logging.info("Authentication refused: integrity good")
+                logging.warning(self.auth_ack)
+            else:
+                logging.warning("Authentication refuse: integrity FAILURE")
+                raise HASAuthenticationRefused("Integrity FAILURE")
+
+    async def connect_with_challenge(self):
+        async with connect(self.uri) as websocket:
+            try:
+                msg = await websocket.recv()
+                self.connected_has = ConnectedHAS.parse_raw(msg)
+                logging.debug(self.connected_has)
+            except Exception as ex:
+                logging.error(ex)
+            pprint(msg)
+            await websocket.send(self.auth_req.json())
+            msg = await websocket.recv()
+            self.auth_wait = AuthWaitHAS.parse_raw(msg)
+            self.auth_payload = AuthPayloadHAS(
+                account=self.hive_acc, uuid=self.auth_wait.uuid, key=self.auth_key_uuid
             )
-            self.time_to_validate = timedelta(seconds=time_to_validate)
+            msg = await websocket.recv()
+            self.auth_ack = AuthAckNakErrHAS.parse_raw(msg)
+            logging.debug(self.auth_ack)
+            if self.auth_ack.uuid == self.auth_wait.uuid:
+                logging.info("uuid OK")
+                self.decrypt()
+                if self.verification.success:
+                    logging.info(
+                        f"Authentication successful in "
+                        f"{self.verification.elapsed_time.seconds:.2f} seconds"
+                    )
+                    self.token = self.auth_ack_data.token
+                    self.expire = self.auth_ack_data.expire
+                else:
+                    logging.warning("Not successful")
+                    raise HASAuthenticationRefused("Integrity good")
+
+    async def connect_with_token(self):
+        """
+        If we have an existing token, use it.
+        """
 
 
 async def hello(uri):
+
+    has = HASAuthentication(
+        hive_acc=HIVE_ACCOUNT,
+        uri=HAS_SERVER,
+        challenge_message="Any string message goes here",
+    )
+    try:
+        await has.connect_with_challenge()
+        logging.info(has.auth_ack_data.token)
+        token_life = has.auth_ack_data.expire - datetime.now(tz=timezone.utc)
+        logging.info(f"Token: {has.auth_ack_data.token} | Expires in : {token_life}")
+        logging.info(has.app_session_id)
+
+        await has.connect_with_challenge()
+
+    except HASAuthenticationRefused:
+        pass
+
+    return
+
     auth_key_uuid = uuid4()
     auth_key = str_bytes(auth_key_uuid)
 
@@ -263,15 +437,15 @@ async def hello(uri):
         }
     )
     auth_data = AuthDataHAS(challenge=challenge)
-    pprint(auth_data.bytes)
+    logging.info(auth_data.bytes)
 
     b64_auth_data_encrypted = encrypt(auth_data.bytes, auth_key)
-    pprint(b64_auth_data_encrypted)
+    logging.info(b64_auth_data_encrypted)
 
     b64_auth_key_encrypted = encrypt(
         str_bytes(auth_key_uuid), str_bytes(HAS_AUTH_REQ_SECRET)
     )
-    pprint(b64_auth_key_encrypted)
+    logging.info(b64_auth_key_encrypted)
 
     auth_req = AuthReqHAS.parse_obj(
         {
@@ -284,40 +458,41 @@ async def hello(uri):
     async with connect(uri) as websocket:
         await websocket.send("Let's get this party started!")
         msg = await websocket.recv()
-        pprint(json.loads(msg))
+        logging.info(json.loads(msg))
         msg2 = await websocket.recv()  # need this failure
-        pprint(json.loads(msg2))
+        logging.info(json.loads(msg2))
         await websocket.send(auth_req.json())
         msg = await websocket.recv()
         auth_wait = AuthWaitHAS.parse_raw(msg)
-        pprint(json.loads(msg))
+        logging.info(json.loads(msg))
 
         auth_payload = AuthPayloadHAS(
             account=HIVE_ACCOUNT, uuid=auth_wait.uuid, key=auth_key_uuid
         )
 
-        pprint(json.dumps(auth_payload, default=str, indent=2))
+        logging.info(json.dumps(auth_payload, default=str, indent=2))
         auth_payload_base64 = base64.b64encode((auth_payload.json()).encode()).decode(
             "utf-8"
         )
         qr_text = f"has://auth_req/{auth_payload_base64}"
-        print(qr_text)
+        logging.info(qr_text)
 
-        print("-" * 50)
+        logging.info("-" * 50)
 
         msg = await websocket.recv()
-        auth_ack = AuthAckNakErrHAS.parse_raw(msg)
-        auth_ack.auth_key = auth_key
+        auth_ack = HASAuthentication.parse_raw(msg)
+        auth_ack.auth_key_uuid = auth_key_uuid
         auth_ack.auth_data = auth_data
         auth_ack.auth_payload = auth_payload
-        pprint(auth_ack)
+        logging.info(auth_ack)
         if auth_ack.uuid == auth_wait.uuid:
-            print("uuid OK")
+            logging.info("uuid OK")
             auth_ack.decrypt()
             if auth_ack.validated:
-                pprint(
+                logging.info(
                     f"Authentication successful in {auth_ack.time_to_validate.seconds:.2f} seconds"
                 )
 
 
+# asyncio.run(log_on(HAS_SERVER))
 asyncio.run(hello(HAS_SERVER))
