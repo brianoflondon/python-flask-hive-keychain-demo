@@ -1,104 +1,67 @@
 {% extends "layout.html" %}
 {% block content %}
-    <div class="content-section">
+<div class="content-section">
 
-        <!-- Adding the Hive Keychain section  -->
-        <fieldset class="form-group form-inline">
-            <legend class="border-bottom mb-4">{{ title }}</legend>
-            <div class="container p-3">
-                <h2>The Steps:</h2>
-                <li>Install the KeyChain browser extension (<a href="https://chrome.google.com/webstore/detail/hive-keychain/jcacnejopjdphbnjgfaaobbfafkihpep">Chrome</a> or <a href="https://addons.mozilla.org/en-US/firefox/addon/hive-keychain/">Firefox</a>)</li>
-                <li><a href="https://hiveonboard.com/create-account?ref=brianoflondon" target="_blank" rel="noopener noreferrer">Get a Hive Account from HiveOnboard.</a></li>
-                <li>Put your Hive Username in here:</li>
+    <!-- Adding the Hive Keychain section  -->
+    <fieldset class="form-group form-inline">
+        <legend class="border-bottom mb-4">{{ title }}</legend>
+        <div class="container p-3">
+            <h2>The Steps:</h2>
+            <li>Install the KeyChain browser extension (<a
+                    href="https://chrome.google.com/webstore/detail/hive-keychain/jcacnejopjdphbnjgfaaobbfafkihpep">Chrome</a>
+                or <a href="https://addons.mozilla.org/en-US/firefox/addon/hive-keychain/">Firefox</a>)</li>
+            <li><a href="https://hiveonboard.com/create-account?ref=brianoflondon" target="_blank"
+                    rel="noopener noreferrer">Get a Hive Account from HiveOnboard.</a></li>
+            <li>Put your Hive Username in here:</li>
+        </div>
+
+        <div class="input-group mb-3 p-1">
+            <div class="input-group-prepend">
+                <span class="input-group-text" id="basic-addon1">@</span>
             </div>
-            <div class="input-group mb-3 p-1">
-                <div class="input-group-prepend">
-                    <span class="input-group-text" id="basic-addon1">@</span>
-                </div>
-                {% if form.acc_name.errors %}
-                    {{ form.acc_name(class="input-group-text is-invalid") }}
-                    <div class="invalid-feedback">
-                        {% for error in form.acc_name.errors %}
-                            <span>{{ error }}</span>
-                        {% endfor %}
-                    </div>
-                {% else %}
-                    <input type="text" id="acc_name" name="acc_name" class="form-control" placeholder="Hive User" aria-label="Hive User" aria-describedby="basic-addon1">
-                {% endif %}
+            {% if form.acc_name.errors %}
+            {{ form.acc_name(class="input-group-text is-invalid") }}
+            <div class="invalid-feedback">
+                {% for error in form.acc_name.errors %}
+                <span>{{ error }}</span>
+                {% endfor %}
             </div>
-            <button class="btn btn-primary mb-3 p2" id="Check Keychain" name="check-keychain" onClick="hiveKeychainSign()">Hive KeyChain Login</button>
-        </fieldset>
+            {% else %}
+            <input class="form-control" list="datalistOptions" id="acc_name" placeholder="Hive User...">
+            <datalist id="datalistOptions"></datalist>
+            {% endif %}
+        </div>
         <div id="match-list" class="autocomplete"></div>
-        <!-- Adding the Hive Keychain section  -->
+        <button class="btn btn-primary mb-3 p2" id="Check Keychain" name="check-keychain"
+            onClick="hiveKeychainSign()">Hive KeyChain Login</button>
+    </fieldset>
+    <!-- Adding the Hive Keychain section  -->
 
-        <form method="POST" action="">
-        {{ form.hidden_tag() }}
-            <fieldset class="form-group">
-                <legend class="border-bottom mb-4">Log In</legend>
-                <div class="form-group">
-                    {{ form.email.label(class="form-control-label") }}
-                    {% if form.email.errors %}
-                        {{ form.email(class="form-control form-control-lg is-invalid") }}
-                        <div class="invalid-feedback">
-                            {% for error in form.email.errors %}
-                                <span>{{ error }}</span>
-                            {% endfor %}
-                        </div>
-                    {% else %}
-                        {{ form.email(class="form-control form-control-lg") }}
-                    {% endif %}
-                </div>
-                <div class="form-group">
-                    {{ form.password.label(class="form-control-label") }}
-                    {% if form.password.errors %}
-                        {{ form.password(class="form-control form-control-lg is-invalid") }}
-                        <div class="invalid-feedback">
-                            {% for error in form.password.errors %}
-                                <span>{{ error }}</span>
-                            {% endfor %}
-                        </div>
-                    {% else %}
-                        {{ form.password(class="form-control form-control-lg") }}
-                    {% endif %}
-                </div>
-                <div class="form-check">
-                    {{ form.remember(class="form-check-input") }}
-                    {{ form.remember.label(class="form-check-label") }}
-                </div>
-            </fieldset>
-            <div class="form-group">
-                {{ form.submit(class="btn btn-outline-info") }}
-            </div>
-            <small class="text-muted ml-2">
-                <a href="#">Forgot Password?</a>
-            </small>
-        </form>
-    </div>
-    <div class="border-top pt-3">
-        <small class="text-muted">
-            Need An Account? <a class="ml-2" href="{{ url_for('register') }}">Sign Up Now</a>
-        </small>
-    </div>
+</div>
+<div class="border-top pt-3">
+    <small class="text-muted">
+        Need An Account? <a class="ml-2" href="{{ url_for('login') }}">Sign Up Now</a>
+    </small>
+</div>
 
 
-<script src="bootstrap-autocomplete.min.js"></script>
 
 <!-- Hive Keychain javascript part -->
 <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
 <script>
-function hiveKeychainSign(){
-    let name = document.querySelector("#acc_name").value;
-    console.log(name);
-    const keychain = window.hive_keychain;
-    if (!name) {
-        // need a name
-        console.log('need a name');
-        return
-    }
-    const signedMessageObj = { type: 'login', address: name, page: window.location.href };
-    const messageObj = { signed_message: signedMessageObj, timestamp: parseInt(new Date().getTime() / 1000, 10) };
-    keychain.requestSignBuffer(name, JSON.stringify(messageObj), 'Posting', response => {
-        if (!response.success) { return; }
+    function hiveKeychainSign() {
+        let name = document.querySelector("#acc_name").value;
+        console.log(name);
+        const keychain = window.hive_keychain;
+        if (!name) {
+            // need a name
+            console.log('need a name');
+            return
+        }
+        const signedMessageObj = { type: 'login', address: name, page: window.location.href };
+        const messageObj = { signed_message: signedMessageObj, timestamp: parseInt(new Date().getTime() / 1000, 10) };
+        keychain.requestSignBuffer(name, JSON.stringify(messageObj), 'Posting', (response) => {
+            if (!response.success) { return; }
             //Successfully logged in
             console.log(response);
             //We added stuff here
@@ -120,42 +83,52 @@ function hiveKeychainSign(){
 
 <!-- Autocomplete for Hive usernames -->
 <script>
-const search = document.getElementById('acc_name');
-const matchlist = document.getElementById('match-list');
+    const search = document.getElementById('acc_name');
+    const matchlist = document.getElementById('match-list');
 
-search.addEventListener('input', () => searchHiveNames(search.value));
+    search.addEventListener('input', () => searchHiveNames(search.value));
 
-// search Hive api and filter
+    // search Hive api and filter
 
-const searchHiveNames = async searchText => {
-    console.log(searchText)
-    const res = await fetch("https://api.hive.blog", {
-        body: `{"jsonrpc":"2.0", "method":"database_api.list_accounts", "params": {"start":"${searchText}", "limit":3, "order":"by_name"}, "id":1}`,
-        headers: {
-          "Content-Type": "application/x-www-form-urlencoded"
-        },
-        method: "POST"
-      });
-    var rawData = await res.json();
-    var accNames = rawData.result.accounts;
-    if(searchText.length === 0) {
-        accNames = [];
-        matchlist.innerHTML = '';
+    const searchHiveNames = async searchText => {
+        console.log(searchText)
+        const res = await fetch("https://api.hive.blog", {
+            body: `{"jsonrpc":"2.0", "method":"database_api.list_accounts", "params": {"start":"${searchText}", "limit":3, "order":"by_name"}, "id":1}`,
+            headers: {
+                "Content-Type": "application/x-www-form-urlencoded"
+            },
+            method: "POST"
+        });
+        var rawData = await res.json();
+        var accNames = rawData.result.accounts;
+        if (searchText.length === 0) {
+            accNames = [];
+            matchlist.innerHTML = '';
+        };
+        console.log(accNames);
+        // outpuHtml(accNames);
+        outputDatalist(accNames);
     };
-    console.log(accNames);
-    outpuHtml(accNames);
-};
 
-const outpuHtml = accNames => {
-    if(accNames.length > 0 ) {
-        const html = accNames.map(accName => `
+    const outpuHtml = accNames => {
+        if (accNames.length > 0) {
+            const html = accNames.map(accName => `
         <div class="card card-body mb-1" id="choice-${accName.id}">
             <a href="#">${accName.name}</a>
         </div>
         `).join('');
-        matchlist.innerHTML = html;
+            matchlist.innerHTML = html;
+        }
     }
-}
+
+    const outputDatalist = accNames => {
+        if (accNames.length > 0) {
+            const html = accNames.map(accName => `
+            <option value="${accName.name}">
+        `).join('');
+            datalistOptions.innerHTML = html;
+        }
+    }
 
 </script>
 

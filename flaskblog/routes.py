@@ -1,6 +1,5 @@
 import json
-
-# Added for Hive Keychain login
+import logging
 import time
 from binascii import hexlify, unhexlify
 
@@ -19,36 +18,18 @@ from flask import (
 )
 from flask_login import current_user, login_required, login_user, logout_user
 
-from flaskblog import app, bcrypt, db
-from flaskblog.forms import LoginForm, RegistrationForm
-from flaskblog.models import Post, User
-
-posts = [
-    {
-        "author": "Brian of London",
-        "title": "Demo of Hive KeyChain Login with Flask Python",
-        "content": "For more details on this you should look at the Github Link",
-        "date_posted": "March 4, 2021",
-    },
-    {
-        "author": "Corey Schafer",
-        "title": "Blog Post 1",
-        "content": "First post content",
-        "date_posted": "April 20, 2018",
-    },
-    {
-        "author": "Jane Doe",
-        "title": "Blog Post 2",
-        "content": "Second post content",
-        "date_posted": "April 21, 2018",
-    },
-]
+from flaskblog import app
+from flaskblog.forms import LoginForm
+from flaskblog.models import User
 
 
 @app.route("/home", strict_slashes=False)
 @app.route("/")
 def home():
-    return render_template("home.html", posts=posts)
+    if not current_user.is_authenticated:
+        return redirect(url_for("login"))
+
+    return render_template("home.html", posts=current_user.get_blog(limit=10))
 
 
 @app.route("/about")
@@ -56,62 +37,35 @@ def about():
     return render_template("about.html", title="About")
 
 
-@app.route("/register", methods=["GET", "POST"])
-def register():
-    if current_user.is_authenticated:
-        return redirect(url_for("home"))
-    form = RegistrationForm()
-    if form.validate_on_submit():
-        hashed_password = bcrypt.generate_password_hash(form.password.data).decode(
-            "utf-8"
-        )
-        user = User(
-            username=form.username.data, email=form.email.data, password=hashed_password
-        )
-        db.session.add(user)
-        db.session.commit()
-        flash("Your account has been created! You are now able to log in", "success")
-        return redirect(url_for("login"))
-    return render_template("register.html", title="Register", form=form)
-
-
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if current_user.is_authenticated:
         return redirect(url_for("home"))
     form = LoginForm()
-    if form.validate_on_submit():
-        user = User.query.filter_by(email=form.email.data).first()
-        if user and bcrypt.check_password_hash(user.password, form.password.data):
-            login_user(user, remember=form.remember.data)
-            next_page = request.args.get("next")
-            return redirect(next_page) if next_page else redirect(url_for("home"))
-        else:
-            flash("Login Unsuccessful. Please check email and password", "danger")
     return render_template("login.html", title="Login", form=form)
 
 
 @app.route("/hive/login", methods=["GET", "POST"])
 def hive_login():
     """Handle the answer from the Hive Keychain browser extension"""
+    logging.info(f"{request.method}")
     if current_user.is_authenticated:
         return redirect(url_for("home"))
     if request.method == "POST" and request.data:
+        logging.info(f"{request.data}")
         ans = json.loads(request.data.decode("utf-8"))
+        logging.info(ans)
         if ans["success"] and validate_hivekeychain_ans(ans):
             acc_name = ans["data"]["username"]
-            user = User.query.filter_by(username=acc_name).first()
+            user = User(account=acc_name)
             if user:
                 login_user(user, remember=True)
-                flash(f"Welcome back - @{user.username}", "info")
+                flash(f"Welcome back - @{user.name}", "info")
                 app.logger.info(f"{acc_name} logged in successfully")
                 return make_response({"loadPage": url_for("home")}, 200)
                 # return redirect(url_for('podcaster.dashboard'))
             else:
                 user = User(username=acc_name)
-                db.session.add(user)
-                db.session.commit()
-                result = login_user(user, remember=True)
                 flash(f"Welcome - @{user.username}", "info")
                 app.logger.info(f"{acc_name} logged in for the first time")
                 return make_response({"loadPage": url_for("home")}, 200)
@@ -183,7 +137,7 @@ def logout():
     return redirect(url_for("home"))
 
 
-@app.route("/account")
 @login_required
-def account():
+@app.route("/@<hive_acc>")
+def profile(hive_acc: str = ""):
     return render_template("account.html", title="Account")

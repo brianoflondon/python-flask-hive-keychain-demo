@@ -61,18 +61,16 @@ https://api.v4v.app/v1/hive/avatar/{{ acc_name }}
           <!-- Navbar Right Side -->
           <div class="navbar-nav">
             {% if current_user.is_authenticated %}
-            <a class="nav-item nav-link" href="{{ url_for('account') }}">Account</a>
             <a class="nav-item nav-link" href="{{ url_for('logout') }}">Logout</a>
             {% else %}
             <a class="nav-item nav-link" href="{{ url_for('login') }}">Login</a>
-            <a class="nav-item nav-link" href="{{ url_for('register') }}">Register</a>
             {% endif %}
           </div>
           {% if current_user.is_authenticated %}
           <div class="d-flex flex-row-reverse">
-            <img src={{ hb_profile_url(current_user.username, size='30' ) }} alt="Logo" width="30" height="30"
+            <img src={{ hb_profile_url(current_user.name, size='30' ) }} alt="Logo" width="30" height="30"
               class="d-inline-block align-text-center">
-            <!-- {{ hb_profile_image(current_user.username, size='30') }} -->
+            <!-- {{ hb_profile_image(current_user.name, size='30') }} -->
             <!-- src="https://images.hive.blog/u/brianoflondon/avatar?width=30&height=30" -->
           </div>
           {% endif %}
@@ -98,7 +96,7 @@ https://api.v4v.app/v1/hive/avatar/{{ acc_name }}
         <div class="content-section">
           <div>
             <div style="margin: auto;">
-              {{ v4v_lightning_qr(current_user.username, size='100%') }}
+              {{ v4v_lightning_qr(current_user.name, size='100%') }}
             </div>
           </div>
           <h3>Our Sidebar</h3>
