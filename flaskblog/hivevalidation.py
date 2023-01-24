@@ -2,11 +2,12 @@ import json
 import logging
 from binascii import hexlify, unhexlify
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from beem.account import Account
 from beemgraphenebase.account import PublicKey
 from beemgraphenebase.ecdsasig import verify_message
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 logging.basicConfig(
     level=logging.DEBUG,
@@ -18,11 +19,14 @@ AUTHENTICATION_TIME_LIMIT = 60
 
 
 class SignedAnswerData(BaseModel):
-    answer_type: str
+    _type: str = Field(..., alias='type')
     username: str
     message: str
     method: str
     key: str
+
+    def __init__(__pydantic_self__, **data: Any) -> None:
+        super().__init__(**data)
 
 
 class SignedAnswer(BaseModel):

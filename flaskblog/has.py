@@ -30,7 +30,7 @@ from websockets.legacy.client import WebSocketClientProtocol
 # https://devpress.csdn.net/python/630460127e6682346619ab98.html
 
 BLOCK_SIZE = AES.block_size
-HIVE_ACCOUNT = "brianoflondon"
+HIVE_ACCOUNT = "v4vapp.dev"
 HAS_AUTHENTICATION_TIME_LIMIT = 600
 
 logging.basicConfig(
@@ -270,7 +270,7 @@ class HASAuthentication(BaseModel):
             )
             self.auth_data = AuthDataHAS(challenge=challenge, token=self.token)
             self.auth_req = AuthReqHAS(
-                account=HIVE_ACCOUNT,
+                account=self.hive_acc,
                 data=self.b64_auth_data_encrypted,
                 # Auth Key needed for using a PKSA Service without QR codes
                 auth_key=self.b64_auth_payload_encrypted,
@@ -298,7 +298,7 @@ class HASAuthentication(BaseModel):
                 error=None,
                 result=self.auth_ack_data.challenge.challenge,
                 data=SignedAnswerData(
-                    answer_type="HAS",
+                    _type="HAS",
                     username=self.auth_payload.account,
                     message=self.auth_data.challenge.challenge,
                     method=self.auth_data.challenge.key_type,
@@ -405,7 +405,7 @@ async def hello(uri):
     )
     try:
         async with connect(has.uri) as websocket:
-            has.token = "c3da8aa3-777e-4581-883a-2a41b974dbac"
+            # has.token = "c3da8aa3-777e-4581-883a-2a41b974dbac"
             has.websocket = websocket
             time_to_wait = await has.connect_with_challenge()
             await has.get_qrcode()

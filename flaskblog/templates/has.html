@@ -1,164 +1,63 @@
-{% extends "layout.html" %}
-{% block content %}
-<div class="content-section">
+<!DOCTYPE html>
+<html>
 
-    <!-- Adding the Hive Keychain section  -->
-    <fieldset class="form-group form-inline">
-        <legend class="border-bottom mb-4">{{ title }}</legend>
-        <div class="container p-3">
-            <h2>The Steps:</h2>
-            <li>Install the KeyChain browser extension (<a
-                    href="https://chrome.google.com/webstore/detail/hive-keychain/jcacnejopjdphbnjgfaaobbfafkihpep">Chrome</a>
-                or <a href="https://addons.mozilla.org/en-US/firefox/addon/hive-keychain/">Firefox</a>)</li>
-            <li><a href="https://hiveonboard.com/create-account?ref=brianoflondon" target="_blank"
-                    rel="noopener noreferrer">Get a Hive Account from HiveOnboard.</a></li>
-            <li>Put your Hive Username in here:</li>
+<head>
+    <script src="https://code.jquery.com/jquery-3.4.1.slim.min.js"
+        integrity="sha384-J6qa4849blE2+poT4WnyKhv5vZF5SrPo0iEjwBvKU7imGFAV0wwj1yYfoRSJoZ+n"
+        crossorigin="anonymous"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.1/dist/css/bootstrap.min.css" rel="stylesheet"
+        integrity="sha384-F3w7mX95PdgyTmZZMECAngseQB83DfGTowi0iMjiWaeVhAn4FJkqJByhZMI3AhiU" crossorigin="anonymous">
+</head>
+
+<body>
+    <div id="login_req" class="container">
+        <div class="row-fluid">
+            <div class="login well well-small">
+                <div class="center">
+                    <img src="./logo.png" alt="logo">
+                </div>
+                <div class="control-group">
+                    <div class="input-prepend">
+                        <span class="add-on"><i class="icon-user"></i></span>
+                        <input name="data[User][username]" required="required" placeholder="Username" maxlength="16"
+                            type="text" id="username">
+                    </div>
+                </div>
+                <div class="control-group">
+                    <button type="button" class="btn btn-danger btn-large" onclick="click_login()">Sign in with
+                        HAS</button>
+                </div>
+                </form>
+            </div><!--/.login-->
+        </div><!--/.row-fluid-->
+    </div><!--/.container-->
+    <div id="login_wait" class="container">
+        <div class="center">
+            <img src="./logo.png" alt="logo">
         </div>
-
-        <div class="input-group mb-3 p-1">
-            <div class="input-group-prepend">
-                <span class="input-group-text" id="basic-addon1">@</span>
-            </div>
-            {% if form.acc_name.errors %}
-            {{ form.acc_name(class="input-group-text is-invalid") }}
-            <div class="invalid-feedback">
-                {% for error in form.acc_name.errors %}
-                <span>{{ error }}</span>
-                {% endfor %}
-            </div>
-            {% else %}
-            <input class="form-control" list="datalistOptions" id="acc_name" placeholder="Hive User...">
-            <datalist id="datalistOptions"></datalist>
-            {% endif %}
-        </div>
-        <div id="match-list" class="autocomplete"></div>
-        <button class="btn btn-hkc-login" id="Check Keychain" name="check-keychain" onClick="hiveKeychainSign()"><img
-                src="/static/images/hive_keychain_button.png" alt="Hive Keychain Login" class=img-responsive"
-                style="width: 140px; margin: 0px auto;"></button>
-        <button class="btn btn-has-login" style="padding: 12px;" name="check-has" onClick="hiveHASLogin()""><img src="
-            /static/images/hive_auth_button.svg" alt="HAS Login" class="img-responsive"
-            style="width: 140px; margin: 0px auto;"></button>
-    </fieldset>
-    <!-- Adding the Hive Keychain section  -->
-
-</div>
-<div class="border-top pt-3">
-    <small class="text-muted">
-        Need An Account? <a class="ml-2" href="{{ url_for('login') }}">Sign Up Now</a>
-    </small>
-</div>
-
-
-
-<!-- Hive Keychain javascript part -->
-<script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
-<script>
-    function hiveHASLogin() {
-        let name = document.querySelector("#acc_name").value;
-        console.log('pushed the button ', name)
-        if (!name) {
-            // need a name
-            console.log('need a name');
-            return
-        }
-        const response = { "has" : true, "acc_name": name }
-        axios.post("/hive/haslogin", response).then((res) => {
-            console.log(res)
-            let data = res.data;
-            console.log(data)
-            //You'd probably want to give the url back in as a json.
-            //Whatever you send back will be save in data. Here' i'm assuming the format
-            //data = {podcaster : "https://google.com"}
-            window.location.href = `${data.loadPage}`;
-        }).catch((err) => {
-            console.log(err);
-            //Deal with any error here
-        })
-    }
-
-
-    function hiveKeychainSign() {
-        let name = document.querySelector("#acc_name").value;
-        console.log(name);
-        const keychain = window.hive_keychain;
-        if (!name) {
-            // need a name
-            console.log('need a name');
-            return
-        }
-        const signedMessageObj = { type: 'login', address: name, page: window.location.href };
-        const messageObj = { signed_message: signedMessageObj, timestamp: parseInt(new Date().getTime() / 1000, 10) };
-        keychain.requestSignBuffer(name, JSON.stringify(messageObj), 'Posting', (response) => {
-            if (!response.success) { return; }
-            //Successfully logged in
-            console.log(response);
-            //We added stuff here
-            axios.post("/hive/login", response).then((res) => {
-                console.log(res)
-                let data = res.data;
-                //You'd probably want to give the url back in as a json.
-                //Whatever you send back will be save in data. Here' i'm assuming the format
-                //data = {podcaster : "https://google.com"}
-                window.location.href = `${data.loadPage}`;
-            }).catch((err) => {
-                console.log(err);
-                //Deal with any error here
-            })
-        });
-    };
-</script>
-<!-- Hive Keychain javascript part -->
-
-<!-- Autocomplete for Hive usernames -->
-<script>
-    const search = document.getElementById('acc_name');
-    const matchlist = document.getElementById('match-list');
-
-    search.addEventListener('input', () => searchHiveNames(search.value));
-
-    // search Hive api and filter
-
-    const searchHiveNames = async searchText => {
-        console.log(searchText)
-        const res = await fetch("https://api.hive.blog", {
-            body: `{"jsonrpc":"2.0", "method":"database_api.list_accounts", "params": {"start":"${searchText}", "limit":3, "order":"by_name"}, "id":1}`,
-            headers: {
-                "Content-Type": "application/x-www-form-urlencoded"
-            },
-            method: "POST"
-        });
-        var rawData = await res.json();
-        var accNames = rawData.result.accounts;
-        if (searchText.length === 0) {
-            accNames = [];
-            matchlist.innerHTML = '';
-        };
-        console.log(accNames);
-        // outpuHtml(accNames);
-        outputDatalist(accNames);
-    };
-
-    const outpuHtml = accNames => {
-        if (accNames.length > 0) {
-            const html = accNames.map(accName => `
-        <div class="card card-body mb-1" id="choice-${accName.id}">
-            <a href="#">${accName.name}</a>
-        </div>
-        `).join('');
-            matchlist.innerHTML = html;
-        }
-    }
-
-    const outputDatalist = accNames => {
-        if (accNames.length > 0) {
-            const html = accNames.map(accName => `
-            <option value="${accName.name}">
-        `).join('');
-            datalistOptions.innerHTML = html;
-        }
-    }
-
-</script>
+        <center>
+            <h3>Waiting for login approval</h3>
+            <div class="qr-code"><span></span></div>
+            Start your PKSA application
+        </center>
+    </div><!--/.container-->
+    <div id="login_ack" class="container">
+        <center>
+            <h3>Login approved</h3>You can now sign transactions
+        </center>
+        <hr style="color:">
+        <center>
+            <button type="button" class="btn btn-primary btn-large" onclick="click_posting()">Posting Key</button>
+        </center>
+        </br>
+        <center>
+            <button type="button" class="btn btn-primary btn-large" onclick="click_active()">Active Key</button>
+        </center>
+        </br>
+        <center>
+            <button type="button" class="btn btn-danger btn-large" onclick="click_logout()">Logout</button>
+        </center>
+    </div><!--/.container-->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/uuid/8.1.0/uuidv4.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"
         integrity="sha512-E8QSvWZ0eCLGk4km3hxSsNmGWbLtSCSUcewDQPQWZF6pEU8GlT8a5fF32wOl1i8ftdMhssTrF/OhyGWwonTcXA=="
@@ -171,8 +70,8 @@
         // HAS variables
         const HAS_SERVER = "wss://hive-auth.arcange.eu"
         const HAS_APP_DATA = {
-            name: "python-flask",
-            description: "HiveAuth in Flask",
+            name: "has-demo-client-html",
+            description: "Demo - HiveAuth from html",
             // icon:"https://domain.com/logo.png",
         }
         const app_key = uuidv4();
@@ -263,8 +162,8 @@
             alert("The browser doesn't support WebSocket")
         }
 
-        function click_login_has() {
-            username = $("#acc_name").val();
+        function click_login() {
+            username = $("#username").val();
             const auth_data = {
                 app: HAS_APP_DATA,
                 token: undefined,
@@ -310,7 +209,7 @@
                 "transfer",
                 {
                     from: username,
-                    to: 'brianoflondon',
+                    to: 'arcange',
                     amount: '1.000 HIVE',
                     memo: "test HAS active",
                 }
@@ -325,5 +224,65 @@
             ws.send(JSON.stringify(payload))
         }
     </script>
+    <style type="text/css">
+        #login img {
+            margin: 10px 0;
+        }
 
-{% endblock content %}
+        #login .center {
+            text-align: center;
+        }
+
+        #login .login {
+            max-width: 300px;
+            margin: 35px auto;
+        }
+
+        #login .login-form {
+            padding: 0px 25px;
+        }
+
+        hr {
+            color: #ff0000;
+        }
+
+        .qr-code {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            width: 200px;
+            height: 200px;
+            border: 1px solid #888;
+            font-size: 14px;
+        }
+
+        .textbox {
+            width: 200px;
+            height: 30px;
+            color: #000;
+            background: #fff;
+            outline: none;
+            border: 1px solid #888;
+            border-radius: 5px;
+            font-size: 14px;
+            padding-left: 5px;
+        }
+
+        .btn {
+            width: 200px;
+            height: 30px;
+            outline: none;
+            border: 0;
+            background: #a01350;
+            cursor: pointer;
+            color: #fff;
+        }
+
+        .btn:active {
+            background: #490b25;
+        }
+    </style>
+</body>
+
+</html>

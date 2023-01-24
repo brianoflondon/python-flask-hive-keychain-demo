@@ -19,6 +19,7 @@ def load_user(account: str):
 class User(Account, UserMixin):
     # Changed the nullable fields for password and email
     # username can be the Hive username
+    login_type: str
 
     def get_id(self):
         try:
@@ -44,4 +45,3 @@ class User(Account, UserMixin):
 
     def json_posting_json_metadata(self):
         return json.dumps(self.posting_json_metadata, indent=2)
-

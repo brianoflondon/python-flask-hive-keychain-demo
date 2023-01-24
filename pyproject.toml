@@ -9,7 +9,7 @@ packages = [{include = "python_flask_hive_keychain_demo"}]
 
 [tool.poetry.dependencies]
 python = "^3.11"
-Flask = "^2.2.2"
+Flask = {extras = ["async"], version = "^2.2.2"}
 beem = {git = "https://gitlab.syncad.com/hive/beem.git"}
 flask-login = "^0.6.2"
 flask-bcrypt = "^1.0.1"

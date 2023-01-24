@@ -1,10 +1,9 @@
-from datetime import timedelta
 import json
 import logging
 import time
 from binascii import hexlify, unhexlify
+from datetime import timedelta
 
-import requests
 from beem.account import Account
 from beemgraphenebase.account import PublicKey
 from beemgraphenebase.ecdsasig import verify_message
@@ -19,12 +18,20 @@ from flask import (
 )
 from flask_login import current_user, login_required, login_user, logout_user
 from pydantic import BaseModel
+from websockets import connect
 
 from flaskblog import app
 from flaskblog.forms import LoginForm
+# from flaskblog.has import HASAuthentication
+from flaskblog.hivevalidation import (
+    SignedAnswer,
+    SignedAnswerData,
+    validate_hivekeychain_ans,
+)
 from flaskblog.models import User
-from flaskblog.hivevalidation import validate_hivekeychain_ans
-# from flaskblog.has import HASApp
+
+HAS_SERVER = "wss://hive-auth.arcange.eu"
+
 
 @app.route("/home", strict_slashes=False)
 @app.route("/")
@@ -48,26 +55,32 @@ def login():
     return render_template("login.html", title="Login", form=form)
 
 
-class SignedAnswerData(BaseModel):
-    type: str
-    username: str
-    message: str
-    method: str
-    key: str
+@app.route("/hive/haslogin", methods=["POST"])
+async def has_login():
+    logging.info("HAS Login")
+    logging.debug(f"{request.data}")
+    if request.method == "POST" and request.data:
+        logging.info(f"{request.data}")
+        ans = json.loads(request.data.decode("utf-8"))
+        # flash("Authorised", "danger")
+        acc_name = ans.get("acc_name")
+        user = User(account=acc_name, login_type="has")
+        if user:
+            has = HASAuthentication(
+                hive_acc=acc_name,
+                uri=HAS_SERVER,
+                challenge_message="Any string message goes here",
+            )
+            async with connect(has.uri) as has.websocket:
+                time_to_wait = await has.connect_with_challenge()
+                await has.get_qrcode()
 
+            if user:
+                login_user(user, remember=True, duration=timedelta(days=10))
+                flash(f"Welcome back - @{user.name}", "info")
+                app.logger.info(f"{acc_name} logged in successfully")
 
-class SignedAnswer(BaseModel):
-    success: bool
-    error: str | None
-    result: str
-    data: SignedAnswerData
-    message: str
-    request_id: int
-    publicKey: str
-
-    @property
-    def public_key(self) -> PublicKey:
-        return PublicKey(self.publicKey)
+            return render_template("has.html", title="Login")
 
 
 @app.route("/hive/login", methods=["GET", "POST"])
@@ -85,7 +98,7 @@ def hive_login():
             verification = validate_hivekeychain_ans(signed_answer)
             if verification.success:
                 acc_name = verification.acc_name
-                user = User(account=acc_name)
+                user = User(account=acc_name, login_type="keychain")
                 if user:
                     login_user(user, remember=True, duration=timedelta(days=10))
                     flash(f"Welcome back - @{user.name}", "info")
@@ -101,63 +114,6 @@ def hive_login():
         else:
             flash("Not Authorised", "danger")
             return make_response({"loadPage": url_for("login")}, 401)
-
-
-# def validate_hivekeychain_ans(signed_answer: SignedAnswer):
-#     """takes in the answer from hivekeychain and checks everything"""
-#     """ https://bit.ly/keychainpython """
-
-#     acc_name = signed_answer.data.username  # ans["data"]["username"]
-#     pubkey_s = signed_answer.publicKey  # PublicKey(ans["publicKey"])
-#     pubkey = signed_answer.public_key
-#     enc_msg = signed_answer.data.message  # ans["data"]["message"]
-#     signature = signed_answer.result  # ans["result"]
-
-#     msgkey = verify_message(enc_msg, unhexlify(signature))
-#     pk = PublicKey(hexlify(msgkey).decode("ascii"))
-#     if str(pk) == str(pubkey):
-#         app.logger.info(f"{acc_name} SUCCESS: signature matches given pubkey")
-#         acc = Account(acc_name, lazy=False)
-#         match = False, 0
-#         for key in acc["posting"]["key_auths"]:
-#             match = match or pubkey_s in key
-#         if match:
-#             app.logger.info(f"{acc_name} Matches public key from Hive")
-#             mtime = json.loads(enc_msg)["timestamp"]
-#             time_since = time.time() - mtime
-#             if time_since < 30:
-#                 app.logger.info(f"{acc_name} SUCCESS: in {time_since} seconds")
-#                 return True, time_since
-#             else:
-#                 app.logger.warning(f"{acc_name} ERROR: answer took too long.")
-#     else:
-#         app.logger.warning(f"{acc_name} ERROR: message was signed with a different key")
-#         return False, 0
-
-
-@app.route("/lookup", methods=["GET", "POST"])
-def autocomplete_hive_acc_name():
-    """Lookup a Hive account for autocomplete"""
-    """ https://api.jqueryui.com/autocomplete/#option-source """
-    node = "https://hive.roelandp.nl"
-    # node = 'https://api.hive.blog'
-    if "term" in request.args:
-        search = request.args["term"]
-        limit = request.args.get("limit")
-        if not limit:
-            limit = 10
-        headers = {"Content-Type": "application/x-www-form-urlencoded"}
-        payload = {
-            "jsonrpc": "2.0",
-            "method": "database_api.list_accounts",
-            "params": {"start": search, "limit": limit, "order": "by_name"},
-            "id": 1,
-        }
-        r = requests.post(url=node, data=json.dumps(payload), headers=headers)
-        names = [n["name"] for n in r.json()["result"]["accounts"]]
-    else:
-        names = []
-    return make_response(jsonify(names))
 
 
 @app.route("/logout")
